@@ -1,0 +1,71 @@
+Folder PATH listing
+Volume serial number is 0000009B 4CCF:C8DD
+C:\USERS\ANTHO\ONEDRIVE\DOCUMENTS\DESKTOP\ANTHONY'SFOLDERSTRUCTURE
+|   list.txt
+|   readme.md
+|   ResumeAnthonyCavuotifullstackwebdeveloper.pdf
+|   
++---App
+|   \---ProjectTemplate
+|       +---client
+|       |   \---v1
+|       +---design
+|       +---docs
+|       \---server
+|           \---v1
++---Blender
+|   \---ProjectTemplate
+|       +---ProductExports
+|       +---ProductImports
+|       +---ProjectFiles
+|       |   +---Blender
+|       |   \---Gimp
+|       \---RenderExports
++---Brand
++---clients
+|   \---ClientTemplate
+|       \---ProjectTemplate
+|           +---client
+|           |   \---v1
+|           +---design
+|           +---docs
+|           \---server
+|               \---v1
++---Fonts
++---Junk
++---Music
+|   +---Custom
+|   |   \---ProjectTemplate
+|   |       +---AudioImports
+|   |       +---Drafts
+|   |       +---Finals
+|   |       \---ProjectFiles
+|   \---Downloaded
++---School
+|   \---SemesterTemplate
+|       \---ClassTemplate
+|           |   readme.txt
+|           |   
+|           +---Notes
+|           +---Quizes
+|           +---Tests
+|           \---Videos
++---Thumbnails-VideoScreenShots
++---Website
+|   \---ProjectTemplate
+|       +---client
+|       |   \---v1
+|       +---design
+|       +---docs
+|       \---server
+|           \---v1
+\---Youtube
+    \---VideoTemplate
+        \---ChunkTemplate
+            +---files
+            +---finals
+            +---greenScreen
+            +---images
+            +---music
+            +---soundEffects
+            \---videoFootage
