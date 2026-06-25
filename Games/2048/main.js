@@ -1,5 +1,6 @@
 (() => {
   const PREF_KEY = "sf2048_high_contrast";
+  const CONTROL_PROFILE_KEY = "sf2048_control_profile";
   const engine = window.Game2048;
   if (!engine) {
     return;
@@ -24,32 +25,249 @@
   const contrastToggle = document.getElementById("contrastToggle");
   const directionButtons = document.querySelectorAll("[data-dir]");
 
+  const DEFAULT_INPUT_PROFILE = {
+    transitionLockMs: 210,
+    noMoveLockMs: 120,
+    keys: {
+      ArrowUp: "up",
+      ArrowDown: "down",
+      ArrowLeft: "left",
+      ArrowRight: "right",
+      w: "up",
+      s: "down",
+      a: "left",
+      d: "right",
+      W: "up",
+      S: "down",
+      A: "left",
+      D: "right",
+    },
+    swipe: {
+      enabled: true,
+      minDistance: 24,
+      axisBias: 1.3,
+      allowMouse: true,
+      allowTouch: true,
+    },
+    buttons: {
+      enabled: true,
+    },
+  };
+
   const stateSeed = (typeof crypto !== "undefined" && crypto.getRandomValues)
     ? crypto.getRandomValues(new Uint32Array(1))[0]
     : Date.now();
 
   const boardCellsByIndex = [];
-  const keyToDirection = {
-    ArrowUp: "up",
-    ArrowDown: "down",
-    ArrowLeft: "left",
-    ArrowRight: "right",
-    k: "up",
-    j: "down",
-    h: "left",
-    l: "right",
-    w: "up",
-    s: "down",
-    a: "left",
-    d: "right",
-  };
-
   const textColorByValue = {
     2: "var(--tile-text-dark)",
     4: "var(--tile-text-dark)",
   };
 
+  const inputProfile = parseInputProfile();
+  const transitionLockMs = deriveTransitionLockMs();
+  const swipeState = {
+    active: false,
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    handled: false,
+    direction: null,
+  };
+  const inputLock = {
+    active: false,
+    timer: null,
+  };
+  const pressedKeys = new Set();
   let state = createInitialState(stateSeed);
+
+  function cloneProfile(profile) {
+    try {
+      return JSON.parse(JSON.stringify(profile));
+    } catch (error) {
+      return {
+        transitionLockMs: profile.transitionLockMs,
+        noMoveLockMs: profile.noMoveLockMs,
+        keys: Object.assign({}, profile.keys),
+        swipe: Object.assign({}, profile.swipe),
+        buttons: Object.assign({}, profile.buttons),
+      };
+    }
+  }
+
+  function mergeInputProfile(base, incoming) {
+    if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) {
+      return base;
+    }
+    Object.keys(incoming).forEach((key) => {
+      const value = incoming[key];
+      if (value === undefined || value === null) {
+        return;
+      }
+      if (
+        typeof value === "object"
+        && !Array.isArray(value)
+        && typeof base[key] === "object"
+        && !Array.isArray(base[key])
+      ) {
+        mergeInputProfile(base[key], value);
+        return;
+      }
+      base[key] = value;
+    });
+    return base;
+  }
+
+  function normalizePositiveInteger(value, fallback) {
+    const n = Number(value);
+    const asInt = Number.isFinite(n) ? Math.trunc(n) : NaN;
+    if (!Number.isFinite(asInt) || asInt < 0) {
+      return fallback;
+    }
+    return asInt;
+  }
+
+  function normalizeInputProfile(profile) {
+    if (!profile || typeof profile !== "object") {
+      return cloneProfile(DEFAULT_INPUT_PROFILE);
+    }
+
+    profile.transitionLockMs = normalizePositiveInteger(profile.transitionLockMs, DEFAULT_INPUT_PROFILE.transitionLockMs);
+    profile.noMoveLockMs = normalizePositiveInteger(profile.noMoveLockMs, DEFAULT_INPUT_PROFILE.noMoveLockMs);
+    profile.keys = profile.keys && typeof profile.keys === "object" && !Array.isArray(profile.keys)
+      ? profile.keys
+      : cloneProfile(DEFAULT_INPUT_PROFILE.keys);
+    profile.swipe = profile.swipe && typeof profile.swipe === "object" && !Array.isArray(profile.swipe)
+      ? profile.swipe
+      : cloneProfile(DEFAULT_INPUT_PROFILE.swipe);
+    profile.swipe.enabled = profile.swipe.enabled !== false;
+    profile.swipe.minDistance = normalizePositiveInteger(profile.swipe.minDistance, DEFAULT_INPUT_PROFILE.swipe.minDistance);
+    profile.swipe.axisBias = Number.isFinite(Number(profile.swipe.axisBias)) && Number(profile.swipe.axisBias) > 0
+      ? Number(profile.swipe.axisBias)
+      : DEFAULT_INPUT_PROFILE.swipe.axisBias;
+    profile.swipe.allowMouse = profile.swipe.allowMouse !== false;
+    profile.swipe.allowTouch = profile.swipe.allowTouch !== false;
+    profile.buttons = profile.buttons && typeof profile.buttons === "object" && !Array.isArray(profile.buttons)
+      ? profile.buttons
+      : cloneProfile(DEFAULT_INPUT_PROFILE.buttons);
+    profile.buttons.enabled = profile.buttons.enabled !== false;
+
+    return profile;
+  }
+
+  function parseInputProfile() {
+    const merged = cloneProfile(DEFAULT_INPUT_PROFILE);
+    let stored;
+    try {
+      stored = JSON.parse(localStorage.getItem(CONTROL_PROFILE_KEY) || "{}");
+    } catch (error) {
+      stored = {};
+    }
+    const mergedWithStorage = mergeInputProfile(merged, stored);
+    return normalizeInputProfile(mergedWithStorage);
+  }
+
+  function parseDurationMs(value, fallbackMs) {
+    if (typeof value !== "string") {
+      return fallbackMs;
+    }
+    const match = value.trim().match(/^([0-9]*\.?[0-9]+)\s*(ms|s)$/i);
+    if (!match) {
+      return fallbackMs;
+    }
+    const magnitude = Number(match[1]);
+    if (!Number.isFinite(magnitude)) {
+      return fallbackMs;
+    }
+    return match[2].toLowerCase() === "s" ? magnitude * 1000 : magnitude;
+  }
+
+  function deriveTransitionLockMs() {
+    const fallback = DEFAULT_INPUT_PROFILE.transitionLockMs;
+    if (!gameBoard || !document || !window || !window.getComputedStyle) {
+      return fallback + 25;
+    }
+    const computed = getComputedStyle(document.documentElement).getPropertyValue("--motion-medium");
+    const parsed = parseDurationMs(computed, fallback);
+    return Math.max(1, Math.ceil(parsed + 25));
+  }
+
+  function isPointerAllowed(pointerType) {
+    if (pointerType === "mouse") {
+      return inputProfile.swipe.allowMouse;
+    }
+    if (pointerType === "touch") {
+      return inputProfile.swipe.allowTouch;
+    }
+    return true;
+  }
+
+  function clearSwipeState() {
+    swipeState.active = false;
+    swipeState.pointerId = null;
+    swipeState.startX = 0;
+    swipeState.startY = 0;
+    swipeState.handled = false;
+    swipeState.direction = null;
+  }
+
+  function clearInputLock() {
+    inputLock.active = false;
+    if (inputLock.timer) {
+      clearTimeout(inputLock.timer);
+      inputLock.timer = null;
+    }
+  }
+
+  function beginInputLock(durationMs) {
+    const lockMs = normalizePositiveInteger(durationMs, 0);
+    clearInputLock();
+    if (lockMs <= 0) {
+      return;
+    }
+    inputLock.active = true;
+    inputLock.timer = setTimeout(() => {
+      inputLock.active = false;
+      inputLock.timer = null;
+    }, lockMs);
+  }
+
+  function resetControlState() {
+    clearInputLock();
+    clearSwipeState();
+    pressedKeys.clear();
+  }
+
+  function setStatus(message) {
+    statusText.textContent = message;
+    ariaStatus.textContent = message;
+  }
+
+  function mapDirectionFromKey(key) {
+    const direct = inputProfile.keys[key];
+    if (direct) {
+      return direct;
+    }
+    const lower = String(key).toLowerCase();
+    const upper = String(key).toUpperCase();
+    return inputProfile.keys[lower] || inputProfile.keys[upper];
+  }
+
+  function getSwipeDirection(deltaX, deltaY) {
+    const absX = Math.abs(deltaX);
+    const absY = Math.abs(deltaY);
+    const maxDelta = Math.max(absX, absY);
+    if (maxDelta < inputProfile.swipe.minDistance) {
+      return null;
+    }
+    if (absX >= absY * inputProfile.swipe.axisBias) {
+      return deltaX > 0 ? "right" : "left";
+    }
+    if (absY >= absX * inputProfile.swipe.axisBias) {
+      return deltaY > 0 ? "down" : "up";
+    }
+    return null;
+  }
 
   function readHighContrastPreference() {
     try {
@@ -208,19 +426,28 @@
       : Date.now();
     state = createInitialState(seed);
     render(state);
-    statusText.textContent = "New game started.";
-    ariaStatus.textContent = "New game started.";
+    setStatus("New game started.");
+    gameBoard.focus({ preventScroll: true });
   }
 
   function handleMove(direction) {
+    if (inputLock.active) {
+      return;
+    }
     if (state.over) {
-      statusText.textContent = "Game over. Press New Game to continue.";
-      ariaStatus.textContent = "Game over. Press New Game to continue.";
+      setStatus("Game over. Press New Game to continue.");
       gameBoard.focus({ preventScroll: true });
       return;
     }
+
     const result = executeMove(state, direction);
     render(result.state);
+    const moved = result.state.lastMove && result.state.lastMove.moved;
+    beginInputLock(moved ? transitionLockMs : inputProfile.noMoveLockMs);
+    if (result.state.over) {
+      resetControlState();
+      return;
+    }
   }
 
   function handleUndo() {
@@ -233,26 +460,111 @@
     render(result.state);
   }
 
-  function handleBoardKeydown(event) {
-    const direction = keyToDirection[event.key];
+  function handleSwipeStart(event) {
+    if (!inputProfile.swipe.enabled || !isPointerAllowed(event.pointerType) || state.over) {
+      return;
+    }
+    if (event.pointerType === "mouse" && event.button !== 0) {
+      return;
+    }
+    clearSwipeState();
+    swipeState.active = true;
+    swipeState.pointerId = event.pointerId;
+    swipeState.startX = event.clientX;
+    swipeState.startY = event.clientY;
+    if (typeof event.target.setPointerCapture === "function") {
+      try {
+        event.target.setPointerCapture(event.pointerId);
+      } catch (error) {
+        // no-op
+      }
+    }
+    event.preventDefault();
+  }
+
+  function handleSwipeMove(event) {
+    if (!swipeState.active || event.pointerId !== swipeState.pointerId || swipeState.handled) {
+      return;
+    }
+
+    const deltaX = event.clientX - swipeState.startX;
+    const deltaY = event.clientY - swipeState.startY;
+    const direction = getSwipeDirection(deltaX, deltaY);
     if (!direction) {
       return;
     }
+
+    swipeState.handled = true;
+    swipeState.direction = direction;
+    handleMove(direction);
+    event.preventDefault();
+  }
+
+  function handleSwipeEnd(event) {
+    if (!swipeState.active || event.pointerId !== swipeState.pointerId) {
+      return;
+    }
+
+    if (!swipeState.handled) {
+      const deltaX = event.clientX - swipeState.startX;
+      const deltaY = event.clientY - swipeState.startY;
+      const direction = getSwipeDirection(deltaX, deltaY);
+      if (direction) {
+        swipeState.handled = true;
+        swipeState.direction = direction;
+        handleMove(direction);
+      }
+    }
+
+    clearSwipeState();
+  }
+
+  function handleBoardKeydown(event) {
+    const direction = mapDirectionFromKey(event.key);
+    if (!direction) {
+      return;
+    }
+    const token = `${event.code}:${event.key}`;
+    if (pressedKeys.has(token) || pressedKeys.has(event.key)) {
+      return;
+    }
+    pressedKeys.add(token);
+    pressedKeys.add(event.key);
     event.preventDefault();
     handleMove(direction);
   }
 
+  function handleBoardKeyup(event) {
+    pressedKeys.delete(`${event.code}:${event.key}`);
+    pressedKeys.delete(event.key);
+  }
+
   function bindInputs() {
     gameBoard.addEventListener("keydown", handleBoardKeydown);
+    gameBoard.addEventListener("keyup", handleBoardKeyup);
     gameBoard.addEventListener("click", () => {
       gameBoard.focus({ preventScroll: true });
     });
 
-    directionButtons.forEach((button) => {
-      button.addEventListener("click", () => handleMove(button.dataset.dir));
+    if (inputProfile.swipe.enabled) {
+      gameBoard.addEventListener("pointerdown", handleSwipeStart);
+      gameBoard.addEventListener("pointermove", handleSwipeMove);
+      gameBoard.addEventListener("pointerup", handleSwipeEnd);
+      gameBoard.addEventListener("pointercancel", clearSwipeState);
+      gameBoard.addEventListener("pointerleave", clearSwipeState);
+    }
+
+    if (inputProfile.buttons.enabled) {
+      directionButtons.forEach((button) => {
+        button.addEventListener("click", () => handleMove(button.dataset.dir));
+      });
+    }
+
+    newGameButton.addEventListener("click", () => {
+      resetControlState();
+      startNewGame();
     });
 
-    newGameButton.addEventListener("click", startNewGame);
     undoButton.addEventListener("click", handleUndo);
 
     contrastToggle.addEventListener("click", () => {
