@@ -180,6 +180,10 @@ body {
   touch-action: none;
 }
 
+.game-board.is-paused {
+  opacity: 0.92;
+}
+
 .game-board:focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 3px;
@@ -309,7 +313,7 @@ body {
 
 .stat-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
   gap: 0.8rem;
 }
 
@@ -334,12 +338,17 @@ body {
 
 .button-stack {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.65rem;
 }
 
 .action-btn {
   padding: 0.75rem 0.65rem;
+}
+
+.action-btn:disabled {
+  opacity: 0.55;
+  pointer-events: none;
 }
 
 .control-grid {

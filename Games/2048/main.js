@@ -1,6 +1,9 @@
 (() => {
   const PREF_KEY = "sf2048_high_contrast";
   const CONTROL_PROFILE_KEY = "sf2048_control_profile";
+  const SESSION_STORAGE_KEY = "sf2048_game_session_v2";
+  const SESSION_STORAGE_VERSION = 2;
+  const LEGACY_SESSION_STORAGE_KEYS = ["sf2048_game_session", "sf2048_game_state"];
   const engine = window.Game2048;
   if (!engine) {
     return;
@@ -9,7 +12,9 @@
   const {
     BOARD_SIZE,
     createInitialState,
+    deserialize,
     executeMove,
+    serialize,
     undo,
   } = engine;
 
@@ -20,8 +25,11 @@
   const ariaStatus = document.getElementById("ariaStatus");
   const scoreValue = document.getElementById("scoreValue");
   const moveValue = document.getElementById("moveValue");
+  const highScoreValue = document.getElementById("highScoreValue");
+  const timerValue = document.getElementById("timerValue");
   const newGameButton = document.getElementById("newGameButton");
   const undoButton = document.getElementById("undoButton");
+  const pauseButton = document.getElementById("pauseButton");
   const contrastToggle = document.getElementById("contrastToggle");
   const directionButtons = document.querySelectorAll("[data-dir]");
 
@@ -57,8 +65,10 @@
   const stateSeed = (typeof crypto !== "undefined" && crypto.getRandomValues)
     ? crypto.getRandomValues(new Uint32Array(1))[0]
     : Date.now();
+  const TIMER_TICK_MS = 1000;
 
   const boardCellsByIndex = [];
+  const defaultStatusMessage = "Use directional controls to move tiles.";
   const textColorByValue = {
     2: "var(--tile-text-dark)",
     4: "var(--tile-text-dark)",
@@ -80,6 +90,172 @@
   };
   const pressedKeys = new Set();
   let state = createInitialState(stateSeed);
+  let bestScore = 0;
+  let elapsedMs = 0;
+  let isPaused = false;
+  let timerHandle = null;
+  let lastTickAt = null;
+
+  function clampNonNegativeInteger(value, fallback) {
+    const asNumber = Number(value);
+    const asInteger = Number.isFinite(asNumber) ? Math.trunc(asNumber) : NaN;
+    return Number.isFinite(asInteger) && asInteger >= 0 ? asInteger : fallback;
+  }
+
+  function formatElapsed(milliseconds) {
+    const totalSeconds = Math.floor(clampNonNegativeInteger(milliseconds, 0) / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+
+  function readStorageJSON(key) {
+    try {
+      const stored = localStorage.getItem(key);
+      if (!stored) {
+        return null;
+      }
+      return JSON.parse(stored);
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function writeStorageJSON(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (error) {
+      // no-op
+    }
+  }
+
+  function safeDeserializeState(payload) {
+    try {
+      return deserialize(payload);
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function normalizeStoragePayload(payload) {
+    if (!payload || typeof payload !== "object") {
+      return null;
+    }
+
+    const schemaVersion = clampNonNegativeInteger(payload.schemaVersion, 0);
+    if (schemaVersion > SESSION_STORAGE_VERSION) {
+      return null;
+    }
+
+    const candidateState = payload.state || payload.gameState || payload;
+    const restoredState = safeDeserializeState(candidateState);
+    if (!restoredState) {
+      return null;
+    }
+
+    return {
+      state: restoredState,
+      bestScore: clampNonNegativeInteger(
+        payload.bestScore !== undefined
+          ? payload.bestScore
+          : payload.highScore,
+        restoredState.score,
+      ),
+      elapsedMs: clampNonNegativeInteger(
+        payload.elapsedMs !== undefined ? payload.elapsedMs : payload.elapsed,
+        0,
+      ),
+      isPaused: payload.isPaused || payload.paused || false,
+      lastSavedAt: clampNonNegativeInteger(payload.lastSavedAt, 0),
+    };
+  }
+
+  function loadPersistedSession() {
+    const primaryPayload = readStorageJSON(SESSION_STORAGE_KEY);
+    if (primaryPayload) {
+      const normalized = normalizeStoragePayload(primaryPayload);
+      if (normalized) {
+        return normalized;
+      }
+    }
+
+    for (let i = 0; i < LEGACY_SESSION_STORAGE_KEYS.length; i += 1) {
+      const key = LEGACY_SESSION_STORAGE_KEYS[i];
+      const raw = readStorageJSON(key);
+      const normalized = raw ? normalizeStoragePayload(raw) : null;
+      if (normalized) {
+        return normalized;
+      }
+    }
+
+    return null;
+  }
+
+  function commitElapsed(now = Date.now()) {
+    if (!lastTickAt || isPaused || state.over) {
+      return;
+    }
+    const delta = now - lastTickAt;
+    if (Number.isFinite(delta) && delta > 0) {
+      elapsedMs += delta;
+    }
+    lastTickAt = now;
+  }
+
+  function stopTimer() {
+    const wasPaused = isPaused;
+    isPaused = false;
+    if (timerHandle) {
+      clearInterval(timerHandle);
+      timerHandle = null;
+    }
+    commitElapsed();
+    isPaused = wasPaused;
+    lastTickAt = null;
+  }
+
+  function tickTimer() {
+    commitElapsed();
+    if (!timerHandle || isPaused || state.over) {
+      stopTimer();
+      return;
+    }
+    timerValue.textContent = formatElapsed(elapsedMs);
+    persistSession();
+  }
+
+  function startTimer() {
+    if (isPaused || state.over || timerHandle) {
+      return;
+    }
+    lastTickAt = Date.now();
+    timerHandle = setInterval(tickTimer, TIMER_TICK_MS);
+  }
+
+  function persistSession() {
+    commitElapsed();
+    const serializedState = serialize(state);
+    if (typeof serializedState !== "string") {
+      return;
+    }
+    let statePayload;
+    try {
+      statePayload = JSON.parse(serializedState);
+    } catch (error) {
+      return;
+    }
+    if (state.score > bestScore) {
+      bestScore = state.score;
+    }
+    writeStorageJSON(SESSION_STORAGE_KEY, {
+      schemaVersion: SESSION_STORAGE_VERSION,
+      state: statePayload,
+      bestScore,
+      elapsedMs,
+      isPaused,
+      lastSavedAt: Date.now(),
+    });
+  }
 
   function cloneProfile(profile) {
     try {
@@ -334,10 +510,12 @@
 
   function updateGameStatus(nextState) {
     const lastMove = nextState.lastMove;
-    let message = "Use directional controls to move tiles.";
+    let message = defaultStatusMessage;
 
-    if (nextState.over) {
-      message = "Game over. Press New Game to play again.";
+    if (isPaused) {
+      message = "Game paused. Press Resume to continue.";
+    } else if (nextState.over) {
+      message = `Game over. Final score ${nextState.score}. Press Restart to play again.`;
     } else if (nextState.won) {
       message = "You reached 2048. Keep playing to continue.";
     } else if (lastMove && !lastMove.moved) {
@@ -403,6 +581,9 @@
     const { merged, newTileIndex } = getVisualStateMetadata(nextState);
 
     state = nextState;
+    if (state.score > bestScore) {
+      bestScore = state.score;
+    }
     boardTiles.innerHTML = "";
 
     nextState.board.forEach((value, index) => {
@@ -412,30 +593,59 @@
       }
     });
 
+    if (isPaused) {
+      gameBoard.classList.add("is-paused");
+    } else {
+      gameBoard.classList.remove("is-paused");
+    }
+
     scoreValue.textContent = String(nextState.score);
     moveValue.textContent = String(nextState.moveCount);
-    gameBoard.setAttribute("aria-label", `2048 board, score ${nextState.score}, move ${nextState.moveCount}`);
+    highScoreValue.textContent = String(bestScore);
+    timerValue.textContent = formatElapsed(elapsedMs);
+    if (isPaused) {
+      gameBoard.setAttribute(
+        "aria-label",
+        `2048 board, score ${nextState.score}, move ${nextState.moveCount}, paused`,
+      );
+    } else {
+      gameBoard.setAttribute("aria-label", `2048 board, score ${nextState.score}, move ${nextState.moveCount}`);
+    }
     updateCellLabels(nextState);
     updateGameStatus(nextState);
+    persistSession();
+    if (!isPaused && !state.over) {
+      startTimer();
+    }
+    undoButton.disabled = isPaused || state.history.length === 0;
+    pauseButton.disabled = state.over;
+    pauseButton.textContent = isPaused ? "Resume" : "Pause";
+    pauseButton.setAttribute("aria-pressed", String(isPaused));
+    directionButtons.forEach((button) => {
+      button.disabled = state.over || isPaused;
+    });
     gameBoard.focus({ preventScroll: true });
   }
 
   function startNewGame() {
+    stopTimer();
     const seed = (typeof crypto !== "undefined" && crypto.getRandomValues)
       ? crypto.getRandomValues(new Uint32Array(1))[0]
       : Date.now();
     state = createInitialState(seed);
+    isPaused = false;
+    elapsedMs = 0;
     render(state);
     setStatus("New game started.");
     gameBoard.focus({ preventScroll: true });
   }
 
   function handleMove(direction) {
-    if (inputLock.active) {
+    if (inputLock.active || isPaused) {
       return;
     }
     if (state.over) {
-      setStatus("Game over. Press New Game to continue.");
+      setStatus("Game over. Press Restart to continue.");
       gameBoard.focus({ preventScroll: true });
       return;
     }
@@ -446,11 +656,17 @@
     beginInputLock(moved ? transitionLockMs : inputProfile.noMoveLockMs);
     if (result.state.over) {
       resetControlState();
+      stopTimer();
+      persistSession();
       return;
     }
   }
 
   function handleUndo() {
+    if (isPaused) {
+      setStatus("Resume to undo.");
+      return;
+    }
     const result = undo(state);
     if (!result.undone) {
       statusText.textContent = "No moves to undo.";
@@ -460,8 +676,31 @@
     render(result.state);
   }
 
+  function handlePauseToggle() {
+    if (state.over) {
+      setStatus("Game over. Press Restart to continue.");
+      return;
+    }
+
+    if (isPaused) {
+      isPaused = false;
+      persistSession();
+      startTimer();
+      setStatus("Game resumed.");
+      resetControlState();
+      render(state);
+      return;
+    }
+
+    isPaused = true;
+    stopTimer();
+    persistSession();
+    setStatus("Game paused.");
+    render(state);
+  }
+
   function handleSwipeStart(event) {
-    if (!inputProfile.swipe.enabled || !isPointerAllowed(event.pointerType) || state.over) {
+    if (!inputProfile.swipe.enabled || !isPointerAllowed(event.pointerType) || state.over || isPaused) {
       return;
     }
     if (event.pointerType === "mouse" && event.button !== 0) {
@@ -566,6 +805,7 @@
     });
 
     undoButton.addEventListener("click", handleUndo);
+    pauseButton.addEventListener("click", handlePauseToggle);
 
     contrastToggle.addEventListener("click", () => {
       const enabled = document.documentElement.dataset.highContrast !== "true";
@@ -573,19 +813,58 @@
     });
 
     document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        persistSession();
+        return;
+      }
       if (!document.hidden) {
         gameBoard.focus({ preventScroll: true });
       }
     });
+
+    window.addEventListener("beforeunload", () => {
+      persistSession();
+      stopTimer();
+    });
+  }
+
+  function hydrateFromStorage() {
+    const persisted = loadPersistedSession();
+    if (!persisted) {
+      return;
+    }
+
+    state = persisted.state;
+    bestScore = clampNonNegativeInteger(persisted.bestScore, state.score);
+    if (state.score > bestScore) {
+      bestScore = state.score;
+    }
+
+    elapsedMs = clampNonNegativeInteger(persisted.elapsedMs, 0);
+    isPaused = Boolean(persisted.isPaused);
+
+    if (!isPaused && !state.over) {
+      const lastSavedAt = clampNonNegativeInteger(persisted.lastSavedAt, 0);
+      const now = Date.now();
+      if (lastSavedAt && now > lastSavedAt) {
+        elapsedMs += now - lastSavedAt;
+      }
+    }
   }
 
   function boot() {
     gameBoard.setAttribute("tabindex", "0");
     gameBoard.setAttribute("role", "grid");
+    hydrateFromStorage();
     buildCells();
     setHighContrast(readHighContrastPreference());
     bindInputs();
     render(state);
+    if (isPaused || state.over) {
+      stopTimer();
+    } else {
+      startTimer();
+    }
     gameBoard.focus({ preventScroll: true });
   }
 
