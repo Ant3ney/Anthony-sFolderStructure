@@ -36,6 +36,7 @@ var _respawn_transform: Transform3D
 func _ready() -> void:
 	_respawn_transform = global_transform
 	_health = max_health
+	add_to_group("player")
 	_update_health(_health)
 	_update_alert(0.0)
 	_set_target_lock(false)

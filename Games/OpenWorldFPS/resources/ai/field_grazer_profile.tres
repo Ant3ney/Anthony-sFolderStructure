@@ -1,0 +1,30 @@
+[gd_resource type="Resource" script_class="AIBehaviorProfile" load_steps=2 format=3 uid="uid://ai_field_grazer_profile"]
+
+[ext_resource type="Script" path="res://scripts/ai/ai_behavior_profile.gd" id="1_profile"]
+
+[resource]
+script = ExtResource("1_profile")
+entity_name = "Field Grazer"
+initial_state = 1
+target_response = 1
+max_health = 35.0
+flee_health_ratio = 0.35
+sight_range = 18.0
+hearing_range = 9.0
+field_of_view_degrees = 360.0
+line_of_sight_mask = 6
+eye_height = 0.65
+target_aim_height = 0.45
+target_memory_duration = 1.5
+walk_speed = 2.2
+evade_speed = 5.4
+flee_speed = 7.0
+acceleration = 18.0
+path_stop_distance = 0.6
+patrol_offsets = Array[Vector3]([Vector3(0, 0, 0), Vector3(4, 0, 2), Vector3(1, 0, 5), Vector3(-3, 0, 2)])
+idle_duration = 0.8
+evade_duration = 1.1
+safe_distance = 10.0
+emergency_flee_distance = 3.5
+flee_duration = 3.0
+attack_damage = 0.0
