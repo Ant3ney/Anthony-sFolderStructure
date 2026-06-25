@@ -35,6 +35,10 @@ var _target_heard: bool = false
 var _dead: bool = false
 var _target: Node3D
 var _navigation_agent: NavigationAgent3D
+var _health_multiplier: float = 1.0
+var _damage_multiplier: float = 1.0
+var _movement_multiplier: float = 1.0
+var _perception_multiplier: float = 1.0
 
 func _ready() -> void:
 	if behavior_profile == null:
@@ -44,13 +48,13 @@ func _ready() -> void:
 
 	_spawn_position = global_position
 	_current_state = behavior_profile.initial_state
-	_health = behavior_profile.max_health
+	_health = _effective_max_health()
 	_last_known_target_position = global_position
 	add_to_group("targets")
 	add_to_group("ai_entities")
 	_resolve_target()
 	_resolve_navigation_agent()
-	health_changed.emit(_health, behavior_profile.max_health)
+	health_changed.emit(_health, _effective_max_health())
 
 func _physics_process(delta: float) -> void:
 	if behavior_profile == null or _dead:
@@ -87,12 +91,12 @@ func _update_perception(delta: float) -> void:
 		return
 
 	var distance := _distance_to_target()
-	if distance <= behavior_profile.sight_range and _has_line_of_sight(_target):
+	if distance <= _effective_sight_range() and _has_line_of_sight(_target):
 		_target_visible = true
 		_remember_target_position()
 		return
 
-	if distance <= behavior_profile.hearing_range:
+	if distance <= _effective_hearing_range():
 		_target_heard = true
 		_remember_target_position()
 		return
@@ -290,14 +294,14 @@ func _get_path_velocity(destination: Vector3, speed: float, stop_distance: float
 	offset.y = 0.0
 	if offset.length() <= stop_distance:
 		return Vector3.ZERO
-	return offset.normalized() * speed
+	return offset.normalized() * _effective_movement_speed(speed)
 
 func _has_line_of_sight(target: Node3D) -> bool:
 	var from := global_position + Vector3.UP * behavior_profile.eye_height
 	var to := target.global_position + Vector3.UP * behavior_profile.target_aim_height
 	var offset := to - from
 
-	if offset.length() > behavior_profile.sight_range:
+	if offset.length() > _effective_sight_range():
 		return false
 	if not _is_inside_field_of_view(offset):
 		return false
@@ -344,9 +348,10 @@ func _is_attack_ready() -> bool:
 
 func _use_attack_cooldown() -> void:
 	_attack_timer = behavior_profile.attack_cooldown
-	attack_started.emit(_target, behavior_profile.attack_damage)
+	var damage := _effective_attack_damage()
+	attack_started.emit(_target, damage)
 	if _target != null and is_instance_valid(_target) and _target.has_method("apply_damage"):
-		_target.call("apply_damage", behavior_profile.attack_damage)
+		_target.call("apply_damage", damage)
 
 func _away_from_target_destination(distance: float) -> Vector3:
 	if _target == null or not is_instance_valid(_target):
@@ -381,7 +386,7 @@ func _distance_to_target() -> float:
 func _should_flee_from_health() -> bool:
 	if behavior_profile.flee_health_ratio <= 0.0:
 		return false
-	return _health <= behavior_profile.max_health * behavior_profile.flee_health_ratio
+	return _health <= _effective_max_health() * behavior_profile.flee_health_ratio
 
 func _is_target_dead() -> bool:
 	return _target != null and _target.has_method("is_dead") and bool(_target.call("is_dead"))
@@ -391,7 +396,7 @@ func apply_damage(amount: float) -> void:
 		return
 
 	_health = maxf(_health - amount, 0.0)
-	health_changed.emit(_health, behavior_profile.max_health)
+	health_changed.emit(_health, _effective_max_health())
 	if _health <= 0.0:
 		_die()
 	elif _should_flee_from_health():
@@ -408,6 +413,25 @@ func set_target(target: Node3D) -> void:
 	if _target != null:
 		_remember_target_position()
 
+func apply_game_loop_settings(settings: Resource) -> void:
+	if settings == null:
+		return
+
+	var previous_max_health := _effective_max_health()
+	_health_multiplier = _read_positive_setting(settings, "effective_ai_health_multiplier", _health_multiplier)
+	_damage_multiplier = _read_positive_setting(settings, "effective_ai_damage_multiplier", _damage_multiplier)
+	_movement_multiplier = _read_positive_setting(settings, "effective_ai_movement_multiplier", _movement_multiplier)
+	_perception_multiplier = _read_positive_setting(settings, "effective_ai_perception_multiplier", _perception_multiplier)
+
+	if behavior_profile == null or _dead:
+		return
+
+	var health_ratio := 1.0
+	if previous_max_health > 0.0 and _health > 0.0:
+		health_ratio = clampf(_health / previous_max_health, 0.0, 1.0)
+	_health = _effective_max_health() * health_ratio
+	health_changed.emit(_health, _effective_max_health())
+
 func get_current_state() -> int:
 	return _current_state
 
@@ -417,5 +441,44 @@ func get_current_state_name() -> String:
 func get_health() -> float:
 	return _health
 
+func get_max_health() -> float:
+	return _effective_max_health()
+
+func get_difficulty_snapshot() -> Dictionary:
+	return {
+		"health_multiplier": _health_multiplier,
+		"damage_multiplier": _damage_multiplier,
+		"movement_multiplier": _movement_multiplier,
+		"perception_multiplier": _perception_multiplier,
+	}
+
 func is_dead() -> bool:
 	return _dead
+
+func _read_positive_setting(settings: Resource, method_name: String, fallback: float) -> float:
+	if settings.has_method(method_name):
+		return maxf(float(settings.call(method_name)), 0.05)
+	return fallback
+
+func _effective_max_health() -> float:
+	if behavior_profile == null:
+		return 0.0
+	return behavior_profile.max_health * _health_multiplier
+
+func _effective_attack_damage() -> float:
+	if behavior_profile == null:
+		return 0.0
+	return behavior_profile.attack_damage * _damage_multiplier
+
+func _effective_movement_speed(speed: float) -> float:
+	return speed * _movement_multiplier
+
+func _effective_sight_range() -> float:
+	if behavior_profile == null:
+		return 0.0
+	return behavior_profile.sight_range * _perception_multiplier
+
+func _effective_hearing_range() -> float:
+	if behavior_profile == null:
+		return 0.0
+	return behavior_profile.hearing_range * _perception_multiplier

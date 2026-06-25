@@ -1,4 +1,4 @@
-[gd_scene load_steps=11 format=3 uid="uid://f6k2p9n8t4z7"]
+[gd_scene load_steps=12 format=3 uid="uid://f6k2p9n8t4z7"]
 
 [ext_resource type="Script" path="res://scripts/world/world_root.gd" id="1"]
 [ext_resource type="PackedScene" path="res://scenes/player.tscn" id="2"]
@@ -10,9 +10,11 @@
 [ext_resource type="PackedScene" path="res://scenes/enemies/raider_enemy.tscn" id="8"]
 [ext_resource type="Script" path="res://scripts/world/lion_pressure_director.gd" id="9"]
 [ext_resource type="PackedScene" path="res://scenes/creatures/black_mountain_lion.tscn" id="10"]
+[ext_resource type="Resource" path="res://resources/world/game_loop_settings.tres" id="11"]
 
 [node name="WorldRoot" type="Node3D"]
 script = ExtResource("1")
+game_loop_settings = ExtResource("11")
 
 [node name="Player" parent="." instance=ExtResource("2")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.0, 4.0, 4.0)
@@ -27,6 +29,7 @@ script = ExtResource("9")
 chunk_manager_path = NodePath("../ChunkManager")
 player_path = NodePath("../Player")
 black_mountain_lion_scene = ExtResource("10")
+game_loop_settings = ExtResource("11")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = ExtResource("4")
@@ -50,7 +53,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 11.0, 1.0, 4.0)
 offset_left = 12.0
 offset_top = 12.0
 offset_right = 520.0
-offset_bottom = 166.0
+offset_bottom = 204.0
 
 [node name="HUDRows" type="VBoxContainer" parent="HUD/HUDPanel"]
 theme_override_constants/separation = 2
@@ -61,6 +64,9 @@ text = "Health: 100 / 100"
 [node name="AlertLabel" type="Label" parent="HUD/HUDPanel/HUDRows"]
 text = "Alert: 0"
 
+[node name="TimeLabel" type="Label" parent="HUD/HUDPanel/HUDRows"]
+text = "Day 1 | 08:00"
+
 [node name="LionPressureLabel" type="Label" parent="HUD/HUDPanel/HUDRows"]
 text = "Black Mountain Lions: quiet | Stage 0 | Count 0 | Pressure 0.00"
 
@@ -70,5 +76,21 @@ text = "Stable towns: roads clear | Stable | Enemy pressure 0"
 [node name="TargetLockLabel" type="Label" parent="HUD/HUDPanel/HUDRows"]
 text = "Target Lock: OFF"
 
+[node name="SnapshotLabel" type="Label" parent="HUD/HUDPanel/HUDRows"]
+text = "Snapshot: not saved"
+
 [node name="StatusLabel" type="Label" parent="HUD/HUDPanel/HUDRows"]
 text = "Press LMB to shoot and WASD to move"
+
+[node name="DebugPanel" type="PanelContainer" parent="HUD"]
+visible = false
+offset_left = 12.0
+offset_top = 218.0
+offset_right = 520.0
+offset_bottom = 338.0
+
+[node name="DebugRows" type="VBoxContainer" parent="HUD/DebugPanel"]
+theme_override_constants/separation = 2
+
+[node name="DebugLabel" type="Label" parent="HUD/DebugPanel/DebugRows"]
+text = "Debug"

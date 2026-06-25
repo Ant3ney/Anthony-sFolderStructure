@@ -13,10 +13,12 @@ const WARNING_TEXT := [
 	"Black Mountain Lions: encroaching on roads",
 	"Black Mountain Lions: villages under pressure"
 ]
+const GameLoopSettingsResource := preload("res://scripts/world/game_loop_settings.gd")
 
 @export_node_path("Node3D") var chunk_manager_path: NodePath
 @export_node_path("CharacterBody3D") var player_path: NodePath
 @export var black_mountain_lion_scene: PackedScene
+@export var game_loop_settings: GameLoopSettingsResource
 @export_range(5.0, 300.0, 1.0) var pressure_tick_seconds: float = 45.0
 @export_range(0.01, 1.0, 0.01) var pressure_per_tick: float = 0.18
 @export_range(0.0, 120.0, 1.0) var first_wave_delay: float = 12.0
@@ -41,36 +43,51 @@ var _rng := RandomNumberGenerator.new()
 func _ready() -> void:
 	_resolve_references()
 	_seed_rng()
-	_wave_timer = maxf(pressure_tick_seconds - first_wave_delay, 0.0)
+	_wave_timer = maxf(_effective_pressure_tick_seconds() - _effective_first_wave_delay(), 0.0)
 	_settlement_summary = _default_settlement_summary()
 	_apply_pressure_to_chunks()
 	_emit_pressure_changed()
 
 func _physics_process(delta: float) -> void:
-	if pressure_tick_seconds <= 0.0:
+	var tick_seconds := _effective_pressure_tick_seconds()
+	if tick_seconds <= 0.0:
 		return
 
+	var refresh_seconds := _effective_settlement_refresh_seconds()
 	_settlement_refresh_timer += delta
-	if _settlement_refresh_timer >= settlement_refresh_seconds:
-		_settlement_refresh_timer = fmod(_settlement_refresh_timer, settlement_refresh_seconds)
+	if _settlement_refresh_timer >= refresh_seconds:
+		_settlement_refresh_timer = fmod(_settlement_refresh_timer, refresh_seconds)
 		_apply_pressure_to_chunks()
 		_emit_settlement_pressure_changed()
 
 	_wave_timer += delta
-	if _wave_timer < pressure_tick_seconds:
+	if _wave_timer < tick_seconds:
 		return
 
-	_wave_timer = fmod(_wave_timer, pressure_tick_seconds)
+	_wave_timer = fmod(_wave_timer, tick_seconds)
 	advance_pressure(pressure_per_tick, true)
 
 func advance_pressure(amount: float, spawn_wave: bool = true) -> void:
 	if amount <= 0.0:
 		return
 
-	_set_pressure(_pressure_level + amount)
+	_set_pressure(_pressure_level + _effective_pressure_amount(amount))
 	if spawn_wave:
 		_spawn_migration_wave()
 		_apply_pressure_to_chunks()
+	_emit_pressure_changed()
+
+func set_pressure_level(value: float) -> void:
+	_set_pressure(value)
+	_emit_pressure_changed()
+
+func set_game_loop_settings(settings: Resource) -> void:
+	if settings == null:
+		game_loop_settings = null
+	else:
+		game_loop_settings = settings as GameLoopSettingsResource
+	_wave_timer = minf(_wave_timer, _effective_pressure_tick_seconds())
+	_apply_pressure_to_chunks()
 	_emit_pressure_changed()
 
 func get_pressure_level() -> float:
@@ -97,6 +114,17 @@ func get_settlement_warning_text() -> String:
 
 func get_settlement_travel_safety() -> float:
 	return float(_settlement_summary.get("travel_safety", 1.0))
+
+func get_pressure_diagnostics() -> Dictionary:
+	return {
+		"pressure_tick_seconds": _effective_pressure_tick_seconds(),
+		"pressure_per_tick": _effective_pressure_amount(pressure_per_tick),
+		"threat_scale": _settings_value("effective_threat_scale", 1.0),
+		"lion_creep_rate": _settings_value("effective_lion_creep_rate", 1.0),
+		"wave_size_multiplier": _settings_value("effective_wave_size_multiplier", 1.0),
+		"active_lions": get_active_lion_count(),
+		"max_active_lions": _effective_max_active_lions(),
+	}
 
 func _resolve_references() -> void:
 	if chunk_manager_path != NodePath() and has_node(chunk_manager_path):
@@ -125,7 +153,8 @@ func _stage_for_pressure(value: float) -> int:
 	return stage
 
 func _density_scale() -> float:
-	return 1.0 + (_pressure_level * 0.75) + (float(_pressure_stage) * 0.25)
+	var pressure_component := (_pressure_level * 0.75) + (float(_pressure_stage) * 0.25)
+	return 1.0 + (pressure_component * _settings_value("effective_threat_scale", 1.0))
 
 func _apply_pressure_to_chunks() -> void:
 	if _chunk_manager == null:
@@ -140,7 +169,7 @@ func _spawn_migration_wave() -> void:
 		push_warning("LionPressureDirector needs a black mountain lion scene.")
 		return
 
-	var remaining_slots := max_active_lions - _active_lions.size()
+	var remaining_slots := _effective_max_active_lions() - _active_lions.size()
 	if remaining_slots <= 0:
 		return
 
@@ -158,7 +187,8 @@ func _spawn_migration_wave() -> void:
 
 func _spawn_count_for_pressure() -> int:
 	var count := base_lions_per_wave + _pressure_stage + int(floor(_pressure_level * 1.5))
-	return int(clamp(count, 1, max_lions_per_wave))
+	var tuned_count := int(round(float(count) * _settings_value("effective_wave_size_multiplier", 1.0)))
+	return int(clamp(tuned_count, 1, max_lions_per_wave))
 
 func _pick_migration_destination() -> Vector3:
 	if _chunk_manager != null and _chunk_manager.has_method("get_loaded_town_centers"):
@@ -187,9 +217,13 @@ func _spawn_lion(destination: Vector3, index: int, spawn_count: int) -> Node:
 	lion.global_position = destination + offset + Vector3(0.0, 1.0, 0.0)
 	lion.name = "BlackMountainLion_Pressure_%d" % _pressure_stage
 	lion.set_meta("pressure_stage", _pressure_stage)
+	lion.set_meta("lion_creep_rate", _settings_value("effective_lion_creep_rate", 1.0))
+
+	if game_loop_settings != null and lion.has_method("apply_game_loop_settings"):
+		lion.call("apply_game_loop_settings", game_loop_settings)
 
 	if lion.has_method("set_migration_destination"):
-		lion.call("set_migration_destination", destination + Vector3(0.0, 1.0, 0.0), _pressure_stage)
+		lion.call("set_migration_destination", destination + Vector3(0.0, 1.0, 0.0), _pressure_stage, _settings_value("effective_lion_creep_rate", 1.0))
 
 	return lion
 
@@ -236,3 +270,23 @@ func _default_settlement_summary() -> Dictionary:
 		"hostile_population": 0,
 		"state_counts": [0, 0, 0, 0],
 	}
+
+func _effective_pressure_tick_seconds() -> float:
+	return maxf(1.0, pressure_tick_seconds / _settings_value("effective_lion_creep_rate", 1.0))
+
+func _effective_first_wave_delay() -> float:
+	return maxf(0.0, first_wave_delay / _settings_value("effective_lion_creep_rate", 1.0))
+
+func _effective_settlement_refresh_seconds() -> float:
+	return maxf(0.1, settlement_refresh_seconds / _settings_value("effective_lion_creep_rate", 1.0))
+
+func _effective_pressure_amount(amount: float) -> float:
+	return amount * _settings_value("effective_threat_scale", 1.0)
+
+func _effective_max_active_lions() -> int:
+	return max(1, int(round(float(max_active_lions) * _settings_value("effective_wave_size_multiplier", 1.0))))
+
+func _settings_value(method_name: String, fallback: float) -> float:
+	if game_loop_settings != null and game_loop_settings.has_method(method_name):
+		return maxf(float(game_loop_settings.call(method_name)), 0.05)
+	return fallback

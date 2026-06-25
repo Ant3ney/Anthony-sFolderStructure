@@ -150,6 +150,7 @@ var _settlement_pressure_score: float = 0.0
 var _travel_safety_modifier: float = 1.0
 var _defense_level: float = 0.0
 var _pressure_enemy_density: int = 0
+var _settlement_pressure_multiplier: float = 1.0
 
 func initialize(coord: Vector2i, seed: int, chunk_scale: float, obstacle_total: int, player_distance: int, population_scale: float) -> void:
 	chunk_coord = coord
@@ -395,6 +396,10 @@ func set_lion_pressure(stage: int, density_scale: float, active_lion_positions: 
 	_refresh_lion_pressure_markers()
 	_refresh_town_pressure_state()
 
+func set_settlement_pressure_multiplier(value: float) -> void:
+	_settlement_pressure_multiplier = clampf(value, 0.05, 10.0)
+	_refresh_town_pressure_state()
+
 func get_lion_pressure_stage() -> int:
 	return _lion_pressure_stage
 
@@ -440,6 +445,9 @@ func get_defense_level() -> float:
 func get_pressure_enemy_density() -> int:
 	return _pressure_enemy_density
 
+func get_settlement_pressure_multiplier() -> float:
+	return _settlement_pressure_multiplier
+
 func _count_nearby_lions(active_lion_positions: Array) -> int:
 	if _town_centers.is_empty() or active_lion_positions.is_empty():
 		return 0
@@ -481,10 +489,10 @@ func _refresh_town_pressure_state() -> void:
 		_refresh_town_pressure_artifacts()
 
 func _calculate_settlement_pressure_score() -> float:
-	var stage_pressure := float(_lion_pressure_stage)
-	var density_pressure := maxf(_lion_density_scale - 1.0, 0.0) * 0.45
-	var enemy_pressure := float(_hostile_population) * 0.08 + float(_hostile_cluster_count) * 0.22
-	var lion_presence_pressure := float(_nearby_lion_count) * 0.90
+	var stage_pressure := float(_lion_pressure_stage) * _settlement_pressure_multiplier
+	var density_pressure := maxf(_lion_density_scale - 1.0, 0.0) * 0.45 * _settlement_pressure_multiplier
+	var enemy_pressure := (float(_hostile_population) * 0.08 + float(_hostile_cluster_count) * 0.22) * maxf(0.5, _settlement_pressure_multiplier)
+	var lion_presence_pressure := float(_nearby_lion_count) * 0.90 * _settlement_pressure_multiplier
 	return stage_pressure + density_pressure + enemy_pressure + lion_presence_pressure
 
 func _state_for_pressure_score(score: float) -> int:
@@ -521,9 +529,9 @@ func _travel_safety_for_state(state: int, defense_level: float) -> float:
 func _pressure_enemy_density_for_state(state: int) -> int:
 	match state:
 		SettlementState.ALERT:
-			return max(1, _nearby_lion_count)
+			return max(1, int(round(float(max(1, _nearby_lion_count)) * _settlement_pressure_multiplier)))
 		SettlementState.OVERRUN:
-			return max(3, _nearby_lion_count + 1)
+			return max(3, int(round(float(max(3, _nearby_lion_count + 1)) * _settlement_pressure_multiplier)))
 		_:
 			return 0
 

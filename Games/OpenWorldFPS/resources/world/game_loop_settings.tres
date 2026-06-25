@@ -1,0 +1,24 @@
+[gd_resource type="Resource" script_class="GameLoopSettings" load_steps=2 format=3 uid="uid://game_loop_settings"]
+
+[ext_resource type="Script" path="res://scripts/world/game_loop_settings.gd" id="1_settings"]
+
+[resource]
+script = ExtResource("1_settings")
+time_progression_enabled = true
+starting_hour = 8.0
+real_seconds_per_game_day = 1200.0
+time_scale = 1.0
+difficulty_multiplier = 1.0
+threat_scale = 1.0
+lion_creep_rate = 1.0
+wave_size_multiplier = 1.0
+settlement_pressure_multiplier = 1.0
+ai_health_multiplier = 1.0
+ai_damage_multiplier = 1.0
+ai_movement_multiplier = 1.0
+ai_perception_multiplier = 1.0
+debug_view_enabled = false
+inspector_view_enabled = false
+debug_refresh_seconds = 0.25
+local_snapshots_enabled = true
+snapshot_path = "user://world_state_snapshot.json"

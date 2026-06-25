@@ -29,6 +29,8 @@ var _lion_pressure_stage: int = 0
 var _lion_density_scale: float = 1.0
 var _active_lion_positions: Array[Vector3] = []
 var _town_pressure_summary: Dictionary = {}
+var _game_loop_settings: Resource
+var _settlement_pressure_multiplier: float = 1.0
 
 func _ready() -> void:
 	if chunk_scene == null:
@@ -97,6 +99,8 @@ func _spawn_chunk(coord: Vector2i) -> void:
 	chunk.call("initialize", coord, seed, chunk_size, obstacles_per_chunk, player_distance, population_scale)
 	add_child(chunk)
 	_loaded_chunks[_chunk_key(coord)] = chunk
+	if chunk.has_method("set_settlement_pressure_multiplier"):
+		chunk.call("set_settlement_pressure_multiplier", _settlement_pressure_multiplier)
 	if chunk.has_method("set_lion_pressure"):
 		chunk.call("set_lion_pressure", _lion_pressure_stage, _lion_density_scale, _active_lion_positions)
 	_apply_alert_propagation()
@@ -126,6 +130,15 @@ func set_lion_pressure(stage: int, density_scale: float, active_lion_positions: 
 	for chunk in _loaded_chunks.values():
 		if is_instance_valid(chunk) and chunk.has_method("set_lion_pressure"):
 			chunk.call("set_lion_pressure", _lion_pressure_stage, _lion_density_scale, _active_lion_positions)
+	_apply_alert_propagation()
+	_refresh_town_pressure_summary()
+
+func set_game_loop_settings(settings: Resource) -> void:
+	_game_loop_settings = settings
+	_settlement_pressure_multiplier = _settings_value("effective_settlement_pressure_multiplier", 1.0)
+	for chunk in _loaded_chunks.values():
+		if is_instance_valid(chunk) and chunk.has_method("set_settlement_pressure_multiplier"):
+			chunk.call("set_settlement_pressure_multiplier", _settlement_pressure_multiplier)
 	_apply_alert_propagation()
 	_refresh_town_pressure_summary()
 
@@ -169,6 +182,9 @@ func get_pressure_enemy_density() -> int:
 
 func get_pressure_enemy_count() -> int:
 	return get_pressure_enemy_density()
+
+func get_settlement_pressure_multiplier() -> float:
+	return _settlement_pressure_multiplier
 
 func get_loaded_town_centers() -> Array[Vector3]:
 	var centers: Array[Vector3] = []
@@ -304,3 +320,8 @@ func _chunk_coord_for(chunk: Node) -> Vector2i:
 	if typeof(coord) == TYPE_VECTOR2I:
 		return coord
 	return Vector2i.ZERO
+
+func _settings_value(method_name: String, fallback: float) -> float:
+	if _game_loop_settings != null and _game_loop_settings.has_method(method_name):
+		return maxf(float(_game_loop_settings.call(method_name)), 0.05)
+	return fallback

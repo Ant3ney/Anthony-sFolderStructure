@@ -18,6 +18,7 @@ var _has_migration_destination: bool = false
 var _migration_destination: Vector3 = Vector3.ZERO
 var _flank_direction: float = 1.0
 var _flank_timer: float = 0.0
+var _lion_creep_rate: float = 1.0
 
 func _ready() -> void:
 	super._ready()
@@ -125,9 +126,10 @@ func _run_attack(delta: float) -> void:
 	if _state_timer >= behavior_profile.attack_hold_time:
 		_transition_to(LionProfileResource.State.EVADE)
 
-func set_migration_destination(destination: Vector3, stage: int = 0) -> void:
+func set_migration_destination(destination: Vector3, stage: int = 0, creep_rate: float = 1.0) -> void:
 	_migration_destination = destination
 	pressure_stage = max(stage, 0)
+	_lion_creep_rate = maxf(creep_rate, 0.05)
 	_has_migration_destination = true
 	migration_enabled = true
 
@@ -145,7 +147,7 @@ func _should_migrate() -> bool:
 		and _horizontal_distance_to(_migration_destination) > migration_stop_distance
 
 func _run_migration(delta: float) -> void:
-	_move_towards(_migration_destination, migration_speed, migration_stop_distance, delta)
+	_move_towards(_migration_destination, migration_speed * _lion_creep_rate, migration_stop_distance, delta)
 
 func _flank_destination() -> Vector3:
 	if _target == null or not is_instance_valid(_target):
