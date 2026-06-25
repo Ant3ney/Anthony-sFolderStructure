@@ -17,6 +17,13 @@ enum BiomeKind {
 	HILLS
 }
 
+enum SettlementState {
+	STABLE,
+	UNEASY,
+	ALERT,
+	OVERRUN
+}
+
 const BIOME_LIBRARY: Dictionary = {
 	BiomeKind.PLAINS: {
 		"name": "Plains",
@@ -100,12 +107,32 @@ const HOSTILE_CREATURES: Array[Dictionary] = [
 ]
 
 const TOWN_VARIANT_COUNT := 3
+const SETTLEMENT_ALERT_OVERRIDE_NONE := -1
+const TOWN_LION_PRESSURE_RADIUS := 38.0
 const LION_PRESSURE_COLORS: Array[Color] = [
 	Color(0.85, 0.86, 0.76),
 	Color(0.92, 0.76, 0.35),
 	Color(0.95, 0.48, 0.22),
 	Color(0.76, 0.12, 0.11),
 	Color(0.16, 0.03, 0.04)
+]
+const SETTLEMENT_STATE_NAMES: Array[String] = [
+	"Stable",
+	"Uneasy",
+	"Alert",
+	"Overrun"
+]
+const SETTLEMENT_WARNING_TEXT: Array[String] = [
+	"Stable town: roads clear",
+	"Uneasy town: warning signals raised",
+	"Alert town: temporary defenses active",
+	"Overrun town: travel unsafe"
+]
+const SETTLEMENT_STATE_COLORS: Array[Color] = [
+	Color(0.44, 0.78, 0.56),
+	Color(0.94, 0.76, 0.28),
+	Color(0.93, 0.28, 0.16),
+	Color(0.18, 0.02, 0.03)
 ]
 
 var _active_biome: int = BiomeKind.PLAINS
@@ -114,6 +141,15 @@ var _population_scale: float = 1.0
 var _lion_pressure_stage: int = 0
 var _lion_density_scale: float = 1.0
 var _town_centers: Array[Vector3] = []
+var _hostile_population: int = 0
+var _hostile_cluster_count: int = 0
+var _nearby_lion_count: int = 0
+var _town_pressure_state: int = SettlementState.STABLE
+var _settlement_alert_override: int = SETTLEMENT_ALERT_OVERRIDE_NONE
+var _settlement_pressure_score: float = 0.0
+var _travel_safety_modifier: float = 1.0
+var _defense_level: float = 0.0
+var _pressure_enemy_density: int = 0
 
 func initialize(coord: Vector2i, seed: int, chunk_scale: float, obstacle_total: int, player_distance: int, population_scale: float) -> void:
 	chunk_coord = coord
@@ -129,6 +165,15 @@ func _generate_chunk() -> void:
 		child.queue_free()
 
 	_town_centers.clear()
+	_hostile_population = 0
+	_hostile_cluster_count = 0
+	_nearby_lion_count = 0
+	_settlement_alert_override = SETTLEMENT_ALERT_OVERRIDE_NONE
+	_town_pressure_state = SettlementState.STABLE
+	_settlement_pressure_score = 0.0
+	_travel_safety_modifier = 1.0
+	_defense_level = 0.0
+	_pressure_enemy_density = 0
 	var rng := RandomNumberGenerator.new()
 	rng.seed = _seed_from_chunk()
 
@@ -139,6 +184,7 @@ func _generate_chunk() -> void:
 	_add_towns(rng)
 	_add_creature_clusters(rng)
 	_refresh_lion_pressure_markers()
+	_refresh_town_pressure_state()
 
 func _seed_from_chunk() -> int:
 	var x := chunk_coord.x
@@ -232,12 +278,16 @@ func _add_creature_clusters(rng: RandomNumberGenerator) -> void:
 		var is_hostile := rng.randf() < float(settings["hostile_chance"]) * _population_scale
 		var creature := _pick_creature_definition(rng, is_hostile)
 		var size := rng.randi_range(2, int(settings["cluster_max_size"]))
+		var member_count: int = max(2, size)
+		if is_hostile:
+			_hostile_cluster_count += 1
+			_hostile_population += member_count
 		var center := Vector3(
 			rng.randf_range(3.0, chunk_size - 3.0),
 			0.0,
 			rng.randf_range(3.0, chunk_size - 3.0)
 		)
-		_spawn_creature_cluster(rng, center, creature, size)
+		_spawn_creature_cluster(rng, center, creature, member_count)
 
 func _add_box_obstacle(width: float, height: float, depth: float, position: Vector3, color: Color = Color(0.42, 0.44, 0.46), is_physical: bool = true) -> void:
 	var body := StaticBody3D.new()
@@ -337,10 +387,13 @@ func _spawn_town_farm(origin: Vector3) -> void:
 	_add_box_obstacle(1.3, 0.9, 1.4, origin + Vector3(2.0, 0.0, 0.7), Color(0.52, 0.63, 0.50), true)
 	_add_box_obstacle(1.0, 0.6, 1.0, origin + Vector3(-0.2, 0.0, -1.4), Color(0.84, 0.86, 0.72), false)
 
-func set_lion_pressure(stage: int, density_scale: float) -> void:
+func set_lion_pressure(stage: int, density_scale: float, active_lion_positions: Array = []) -> void:
 	_lion_pressure_stage = int(clamp(stage, 0, 4))
 	_lion_density_scale = clampf(density_scale, 0.0, 5.0)
+	_nearby_lion_count = _count_nearby_lions(active_lion_positions)
+	_settlement_alert_override = SETTLEMENT_ALERT_OVERRIDE_NONE
 	_refresh_lion_pressure_markers()
+	_refresh_town_pressure_state()
 
 func get_lion_pressure_stage() -> int:
 	return _lion_pressure_stage
@@ -353,6 +406,258 @@ func get_town_centers() -> Array[Vector3]:
 	for center in _town_centers:
 		centers.append(center)
 	return centers
+
+func set_settlement_alert_override(state: int) -> void:
+	_settlement_alert_override = int(clamp(state, SETTLEMENT_ALERT_OVERRIDE_NONE, SettlementState.OVERRUN))
+	_refresh_town_pressure_state()
+
+func get_town_pressure_state() -> int:
+	return _town_pressure_state
+
+func get_town_pressure_state_name() -> String:
+	return SETTLEMENT_STATE_NAMES[_town_pressure_state]
+
+func get_town_pressure_warning() -> String:
+	if _town_centers.is_empty():
+		return "No settlement in chunk"
+	return SETTLEMENT_WARNING_TEXT[_town_pressure_state]
+
+func get_settlement_pressure_score() -> float:
+	return _settlement_pressure_score
+
+func get_nearby_lion_count() -> int:
+	return _nearby_lion_count
+
+func get_hostile_population() -> int:
+	return _hostile_population
+
+func get_travel_safety_modifier() -> float:
+	return _travel_safety_modifier
+
+func get_defense_level() -> float:
+	return _defense_level
+
+func get_pressure_enemy_density() -> int:
+	return _pressure_enemy_density
+
+func _count_nearby_lions(active_lion_positions: Array) -> int:
+	if _town_centers.is_empty() or active_lion_positions.is_empty():
+		return 0
+
+	var count := 0
+	for lion_position in active_lion_positions:
+		if typeof(lion_position) != TYPE_VECTOR3:
+			continue
+		var lion_vector: Vector3 = lion_position
+		for center in _town_centers:
+			if lion_vector.distance_to(to_global(center)) <= TOWN_LION_PRESSURE_RADIUS:
+				count += 1
+				break
+	return count
+
+func _refresh_town_pressure_state() -> void:
+	var previous_state := _town_pressure_state
+	var previous_pressure_enemy_density := _pressure_enemy_density
+	if _town_centers.is_empty():
+		_town_pressure_state = SettlementState.STABLE
+		_settlement_pressure_score = 0.0
+		_travel_safety_modifier = 1.0
+		_defense_level = 0.0
+		_pressure_enemy_density = 0
+		_clear_town_pressure_artifacts()
+		return
+
+	_settlement_pressure_score = _calculate_settlement_pressure_score()
+	_town_pressure_state = _state_for_pressure_score(_settlement_pressure_score)
+	if _settlement_alert_override != SETTLEMENT_ALERT_OVERRIDE_NONE:
+		_town_pressure_state = max(_town_pressure_state, _settlement_alert_override)
+
+	_defense_level = _defense_level_for_state(_town_pressure_state)
+	_travel_safety_modifier = _travel_safety_for_state(_town_pressure_state, _defense_level)
+	_pressure_enemy_density = _pressure_enemy_density_for_state(_town_pressure_state)
+	if previous_state != _town_pressure_state \
+			or previous_pressure_enemy_density != _pressure_enemy_density \
+			or not _has_town_pressure_artifacts():
+		_refresh_town_pressure_artifacts()
+
+func _calculate_settlement_pressure_score() -> float:
+	var stage_pressure := float(_lion_pressure_stage)
+	var density_pressure := maxf(_lion_density_scale - 1.0, 0.0) * 0.45
+	var enemy_pressure := float(_hostile_population) * 0.08 + float(_hostile_cluster_count) * 0.22
+	var lion_presence_pressure := float(_nearby_lion_count) * 0.90
+	return stage_pressure + density_pressure + enemy_pressure + lion_presence_pressure
+
+func _state_for_pressure_score(score: float) -> int:
+	if score >= 4.2:
+		return SettlementState.OVERRUN
+	if score >= 2.6:
+		return SettlementState.ALERT
+	if score >= 1.2:
+		return SettlementState.UNEASY
+	return SettlementState.STABLE
+
+func _defense_level_for_state(state: int) -> float:
+	match state:
+		SettlementState.UNEASY:
+			return 0.25
+		SettlementState.ALERT:
+			return 0.75
+		SettlementState.OVERRUN:
+			return 0.10
+		_:
+			return 0.0
+
+func _travel_safety_for_state(state: int, defense_level: float) -> float:
+	var base_safety := 1.0
+	match state:
+		SettlementState.UNEASY:
+			base_safety = 0.78
+		SettlementState.ALERT:
+			base_safety = 0.54
+		SettlementState.OVERRUN:
+			base_safety = 0.20
+	return clampf(base_safety + defense_level * 0.16, 0.0, 1.0)
+
+func _pressure_enemy_density_for_state(state: int) -> int:
+	match state:
+		SettlementState.ALERT:
+			return max(1, _nearby_lion_count)
+		SettlementState.OVERRUN:
+			return max(3, _nearby_lion_count + 1)
+		_:
+			return 0
+
+func _has_town_pressure_artifacts() -> bool:
+	for child in get_children():
+		if child.name.begins_with("TownPressureState"):
+			return true
+	return false
+
+func _refresh_town_pressure_artifacts() -> void:
+	_clear_town_pressure_artifacts()
+	for i in _town_centers.size():
+		_add_town_pressure_artifacts(i, _town_centers[i])
+
+func _clear_town_pressure_artifacts() -> void:
+	for child in get_children():
+		if child.name.begins_with("TownPressureState"):
+			child.queue_free()
+
+func _add_town_pressure_artifacts(index: int, center: Vector3) -> void:
+	var state_name := SETTLEMENT_STATE_NAMES[_town_pressure_state]
+	var marker_root := Node3D.new()
+	marker_root.name = "TownPressureState_%s_%d" % [state_name, index]
+	marker_root.add_to_group("town_pressure_artifacts")
+	marker_root.set_meta("settlement_state", state_name)
+	marker_root.set_meta("travel_safety_modifier", _travel_safety_modifier)
+	marker_root.set_meta("pressure_enemy_density", _pressure_enemy_density)
+	add_child(marker_root)
+
+	var color := SETTLEMENT_STATE_COLORS[_town_pressure_state]
+	_add_state_beacon(marker_root, center, color)
+	match _town_pressure_state:
+		SettlementState.STABLE:
+			_add_stable_town_behavior(marker_root, center)
+		SettlementState.UNEASY:
+			_add_uneasy_town_behavior(marker_root, center, color)
+		SettlementState.ALERT:
+			_add_alert_town_behavior(marker_root, center, color)
+		SettlementState.OVERRUN:
+			_add_overrun_town_behavior(marker_root, center, color)
+
+func _add_state_beacon(parent: Node3D, center: Vector3, color: Color) -> void:
+	var height := 0.9 + float(_town_pressure_state) * 0.35
+	var offset := Vector3(-3.9, 0.0, -3.9)
+	_add_artifact_box(parent, Vector3(0.28, height, 0.28), center + offset + Vector3(0.0, height * 0.5, 0.0), color, true)
+	if _town_pressure_state >= SettlementState.UNEASY:
+		_add_artifact_box(parent, Vector3(1.2, 0.12, 0.12), center + offset + Vector3(0.0, height + 0.12, 0.0), color.lightened(0.12), true)
+
+func _add_stable_town_behavior(parent: Node3D, center: Vector3) -> void:
+	_add_settlement_npc(parent, "Resident", center + Vector3(-1.7, 0.0, 2.7), Color(0.54, 0.72, 0.62), "trade_idle")
+	_add_settlement_npc(parent, "Trader", center + Vector3(1.8, 0.0, 2.3), Color(0.58, 0.66, 0.78), "market_patrol")
+
+func _add_uneasy_town_behavior(parent: Node3D, center: Vector3, color: Color) -> void:
+	_add_warning_flags(parent, center, color, 3, 4.2)
+	_add_settlement_npc(parent, "Lookout", center + Vector3(-3.0, 0.0, 0.5), color, "watch_perimeter")
+	_add_settlement_npc(parent, "ShelteringResident", center + Vector3(1.0, 0.0, 1.2), Color(0.78, 0.68, 0.46), "shelter_near_town")
+
+func _add_alert_town_behavior(parent: Node3D, center: Vector3, color: Color) -> void:
+	_add_warning_flags(parent, center, color, 5, 5.0)
+	_add_temporary_defenses(parent, center, color)
+	for i in range(3):
+		var angle := TAU * float(i) / 3.0
+		var offset := Vector3(cos(angle), 0.0, sin(angle)) * 4.6
+		_add_settlement_npc(parent, "Defender", center + offset, Color(0.64, 0.70, 0.74), "defend_perimeter")
+	_add_pressure_enemies(parent, center, color)
+
+func _add_overrun_town_behavior(parent: Node3D, center: Vector3, color: Color) -> void:
+	_add_warning_flags(parent, center, color, 6, 5.4)
+	_add_broken_defenses(parent, center, color)
+	_add_artifact_box(parent, Vector3(0.9, 3.4, 0.9), center + Vector3(0.0, 1.7, 0.0), color, true)
+	_add_settlement_npc(parent, "Refugee", center + Vector3(-4.8, 0.0, 3.8), Color(0.68, 0.62, 0.55), "evacuate")
+	_add_pressure_enemies(parent, center, color)
+
+func _add_warning_flags(parent: Node3D, center: Vector3, color: Color, count: int, radius: float) -> void:
+	for i in range(count):
+		var angle := TAU * float(i) / float(max(1, count))
+		var offset := Vector3(cos(angle), 0.0, sin(angle)) * radius
+		_add_artifact_box(parent, Vector3(0.14, 1.2, 0.14), center + offset + Vector3(0.0, 0.6, 0.0), color, true)
+		_add_artifact_box(parent, Vector3(0.7, 0.08, 0.22), center + offset + Vector3(0.25, 1.18, 0.0), color.lightened(0.1), true)
+
+func _add_temporary_defenses(parent: Node3D, center: Vector3, color: Color) -> void:
+	var defense_color := Color(0.42, 0.31, 0.22).lerp(color, 0.25)
+	_add_artifact_box(parent, Vector3(3.2, 0.45, 0.35), center + Vector3(0.0, 0.28, -5.0), defense_color, false)
+	_add_artifact_box(parent, Vector3(3.2, 0.45, 0.35), center + Vector3(0.0, 0.28, 5.0), defense_color, false)
+	_add_artifact_box(parent, Vector3(0.35, 0.45, 3.2), center + Vector3(-5.0, 0.28, 0.0), defense_color, false)
+	_add_artifact_box(parent, Vector3(0.35, 0.45, 3.2), center + Vector3(5.0, 0.28, 0.0), defense_color, false)
+
+func _add_broken_defenses(parent: Node3D, center: Vector3, color: Color) -> void:
+	var defense_color := Color(0.18, 0.13, 0.11).lerp(color, 0.2)
+	_add_artifact_box(parent, Vector3(2.1, 0.32, 0.32), center + Vector3(-1.8, 0.2, -5.0), defense_color, false)
+	_add_artifact_box(parent, Vector3(1.4, 0.32, 0.32), center + Vector3(2.6, 0.2, 5.2), defense_color, false)
+	_add_artifact_box(parent, Vector3(0.32, 0.32, 2.0), center + Vector3(-5.2, 0.2, 2.0), defense_color, false)
+
+func _add_pressure_enemies(parent: Node3D, center: Vector3, color: Color) -> void:
+	for i in range(_pressure_enemy_density):
+		var angle := TAU * float(i) / float(max(1, _pressure_enemy_density)) + 0.35
+		var radius := 6.2 + float(i % 2)
+		var offset := Vector3(cos(angle), 0.0, sin(angle)) * radius
+		_add_settlement_npc(parent, "PressureEnemy", center + offset, color.darkened(0.35), "pressure_hunt")
+
+func _add_settlement_npc(parent: Node3D, role: String, position: Vector3, color: Color, behavior: String) -> void:
+	var mesh_instance := MeshInstance3D.new()
+	var capsule := CapsuleMesh.new()
+	capsule.radius = 0.22
+	capsule.height = 0.95
+	var material := StandardMaterial3D.new()
+	material.albedo_color = color
+	capsule.material = material
+	mesh_instance.mesh = capsule
+	mesh_instance.position = position + Vector3(0.0, 0.5, 0.0)
+	mesh_instance.name = "TownNPC_%s_%s" % [role, behavior]
+	mesh_instance.add_to_group("settlement_npcs")
+	mesh_instance.set_meta("settlement_state", SETTLEMENT_STATE_NAMES[_town_pressure_state])
+	mesh_instance.set_meta("settlement_behavior", behavior)
+	if behavior == "defend_perimeter":
+		mesh_instance.add_to_group("town_defenders")
+	if behavior == "pressure_hunt":
+		mesh_instance.add_to_group("town_pressure_enemies")
+	parent.add_child(mesh_instance)
+
+func _add_artifact_box(parent: Node3D, size: Vector3, position: Vector3, color: Color, emissive: bool) -> void:
+	var mesh_instance := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = size
+	var material := StandardMaterial3D.new()
+	material.albedo_color = color
+	if emissive:
+		material.emission_enabled = true
+		material.emission = color
+		material.emission_energy_multiplier = 0.25
+	box.material = material
+	mesh_instance.mesh = box
+	mesh_instance.position = position
+	parent.add_child(mesh_instance)
 
 func _refresh_lion_pressure_markers() -> void:
 	_clear_lion_pressure_markers()

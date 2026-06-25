@@ -15,6 +15,7 @@ const DEAD_TEXT := "DEAD - Press R to reload and continue"
 @onready var health_label: Label = $HUD/HUDPanel/HUDRows/HealthLabel
 @onready var alert_label: Label = $HUD/HUDPanel/HUDRows/AlertLabel
 @onready var lion_pressure_label: Label = $HUD/HUDPanel/HUDRows/LionPressureLabel
+@onready var town_pressure_label: Label = $HUD/HUDPanel/HUDRows/TownPressureLabel
 @onready var lock_label: Label = $HUD/HUDPanel/HUDRows/TargetLockLabel
 @onready var status_label: Label = $HUD/HUDPanel/HUDRows/StatusLabel
 
@@ -55,6 +56,8 @@ func _connect_lion_pressure_hud() -> void:
 		return
 
 	lion_pressure_director.connect("pressure_changed", Callable(self, "_on_lion_pressure_changed"))
+	if lion_pressure_director.has_signal("settlement_pressure_changed"):
+		lion_pressure_director.connect("settlement_pressure_changed", Callable(self, "_on_settlement_pressure_changed"))
 	if lion_pressure_director.has_method("get_pressure_stage"):
 		_on_lion_pressure_changed(
 			int(lion_pressure_director.call("get_pressure_stage")),
@@ -62,6 +65,8 @@ func _connect_lion_pressure_hud() -> void:
 			String(lion_pressure_director.call("get_warning_text")),
 			int(lion_pressure_director.call("get_active_lion_count"))
 		)
+	if lion_pressure_director.has_method("get_settlement_summary"):
+		_on_settlement_pressure_changed(lion_pressure_director.call("get_settlement_summary"))
 
 
 func _on_health_updated(current_health: float, max_health: float) -> void:
@@ -80,6 +85,12 @@ func _on_target_lock_updated(enabled: bool) -> void:
 
 func _on_lion_pressure_changed(stage: int, pressure_level: float, warning: String, active_lions: int) -> void:
 	lion_pressure_label.text = "%s | Stage %d | Count %d | Pressure %.2f" % [warning, stage, active_lions, pressure_level]
+
+func _on_settlement_pressure_changed(summary: Dictionary) -> void:
+	var warning := String(summary.get("warning", "Stable towns: roads clear"))
+	var state_name := String(summary.get("state_name", "Stable"))
+	var pressure_enemies := int(summary.get("pressure_enemy_density", 0))
+	town_pressure_label.text = "%s | %s | Enemy pressure %d" % [warning, state_name, pressure_enemies]
 
 
 func _on_death_state_changed(is_dead: bool) -> void:
