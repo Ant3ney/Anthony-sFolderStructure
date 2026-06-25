@@ -49,6 +49,26 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 11.0, 1.0, 4.0)
 
 [node name="HUD" type="CanvasLayer" parent="."]
 
+[node name="OnboardingCard" type="PanelContainer" parent="HUD"]
+offset_left = 12.0
+offset_top = 360.0
+offset_right = 560.0
+offset_bottom = 518.0
+
+[node name="OnboardingRows" type="VBoxContainer" parent="HUD/OnboardingCard"]
+theme_override_constants/separation = 6
+
+[node name="TitleLabel" type="Label" parent="HUD/OnboardingCard/OnboardingRows"]
+text = "OpenWorldFPS field build"
+
+[node name="BodyLabel" type="Label" parent="HUD/OnboardingCard/OnboardingRows"]
+text = "Follow trail markers to the nearest placeholder town. Town colors show pressure state, creature clusters carry simple idle motion, and cue markers tag temporary audio beats for environment, towns, and creatures."
+autowrap_mode = 3
+
+[node name="ControlsLabel" type="Label" parent="HUD/OnboardingCard/OnboardingRows"]
+text = "WASD move | Shift sprint | Space jump | LMB shoot | H hide this card | G/I diagnostics | K/O snapshot"
+autowrap_mode = 3
+
 [node name="HUDPanel" type="PanelContainer" parent="HUD"]
 offset_left = 12.0
 offset_top = 12.0
@@ -80,7 +100,7 @@ text = "Target Lock: OFF"
 text = "Snapshot: not saved"
 
 [node name="StatusLabel" type="Label" parent="HUD/HUDPanel/HUDRows"]
-text = "Press LMB to shoot and WASD to move"
+text = "WASD move | LMB shoot | H hide onboarding | G debug | I inspector"
 
 [node name="DebugPanel" type="PanelContainer" parent="HUD"]
 visible = false

@@ -9,6 +9,29 @@ This directory contains a minimal Godot 4 scene scaffold for a 3D open-world FPS
 
 The world bootstraps a chunked terrain around the player using a deterministic seed.
 
+## Quick play checklist
+1. Start from the single configured main scene: `res://scenes/world_root.tscn`.
+2. Confirm the onboarding card appears with movement, combat, diagnostic, and snapshot controls.
+3. Move with `WASD`, sprint with `Shift`, jump with `Space`, and shoot with left mouse.
+4. Press `H` to hide the onboarding card.
+5. Press `G` for the debug HUD and `I` for inspector details.
+6. Press `K` to save a local world snapshot and `O` to load it.
+
+## Placeholder content pass
+- Towns use temporary market, fort, and farm silhouettes with procedural checker/stripe/speckle materials, animated accent props, and named town audio cue nodes.
+- Creature clusters use temporary shape meshes with procedural materials, idle bob animation, and one generated audio cue marker per cluster.
+- Environment chunks add biome-specific trail strips, grass/tree/rock/cairn props, subtle placeholder motion, and generated ambient cue nodes.
+- The main scene HUD includes an onboarding card so a player can start, understand controls, and verify placeholder content without opening any other scene.
+
+## Local verification
+Run the headless smoke test from the repository root:
+
+```bash
+godot --headless --path Games/OpenWorldFPS -s res://tests/ai_smoke_test.gd
+```
+
+The test covers player/AI scene wiring, black mountain lion pressure behavior, game-loop diagnostics, snapshot schema output, onboarding content, placeholder towns/environment/creatures, generated placeholder animations, and generated placeholder audio cue nodes.
+
 ## Scope of the scaffold
 - Baseline input for movement/jump/run and mouse look.
 - CharacterBody3D player with camera and grounded movement.

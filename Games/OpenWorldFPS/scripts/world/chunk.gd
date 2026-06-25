@@ -1,6 +1,9 @@
 extends Node3D
 class_name Chunk
 
+const PlaceholderAnimatorScript := preload("res://scripts/world/placeholder_animator.gd")
+const PlaceholderAudioCueScript := preload("res://scripts/world/placeholder_audio_cue.gd")
+
 @export var chunk_size: float = 48.0
 @export var obstacle_count: int = 12
 @export var world_seed: int = 20260625
@@ -9,6 +12,7 @@ class_name Chunk
 const WORLD_LAYER: int = 1
 const OBSTACLE_LAYER: int = 4
 const PLAYER_LAYER: int = 2
+const PLACEHOLDER_TEXTURE_SIZE := 8
 
 enum BiomeKind {
 	PLAINS,
@@ -134,6 +138,40 @@ const SETTLEMENT_STATE_COLORS: Array[Color] = [
 	Color(0.93, 0.28, 0.16),
 	Color(0.18, 0.02, 0.03)
 ]
+const PLACEHOLDER_BIOME_PALETTES: Dictionary = {
+	BiomeKind.PLAINS: {
+		"name": "Plains",
+		"ground": Color(0.44, 0.55, 0.31),
+		"trail": Color(0.70, 0.64, 0.48),
+		"prop": Color(0.36, 0.47, 0.29),
+		"accent": Color(0.82, 0.72, 0.39),
+		"audio_frequency": 261.63
+	},
+	BiomeKind.FOREST: {
+		"name": "Forest",
+		"ground": Color(0.22, 0.39, 0.24),
+		"trail": Color(0.40, 0.32, 0.24),
+		"prop": Color(0.17, 0.29, 0.16),
+		"accent": Color(0.48, 0.68, 0.38),
+		"audio_frequency": 329.63
+	},
+	BiomeKind.BADLANDS: {
+		"name": "Badlands",
+		"ground": Color(0.50, 0.32, 0.24),
+		"trail": Color(0.72, 0.53, 0.36),
+		"prop": Color(0.36, 0.28, 0.25),
+		"accent": Color(0.86, 0.55, 0.31),
+		"audio_frequency": 196.00
+	},
+	BiomeKind.HILLS: {
+		"name": "Hills",
+		"ground": Color(0.36, 0.42, 0.34),
+		"trail": Color(0.62, 0.57, 0.46),
+		"prop": Color(0.34, 0.35, 0.32),
+		"accent": Color(0.67, 0.70, 0.55),
+		"audio_frequency": 293.66
+	}
+}
 
 var _active_biome: int = BiomeKind.PLAINS
 var _distance_to_player: int = 0
@@ -182,8 +220,10 @@ func _generate_chunk() -> void:
 
 	_add_ground()
 	_add_obstacles(rng)
+	_add_environment_placeholders(rng)
 	_add_towns(rng)
 	_add_creature_clusters(rng)
+	_add_chunk_audio_cue()
 	_refresh_lion_pressure_markers()
 	_refresh_town_pressure_state()
 
@@ -197,8 +237,11 @@ func _seed_from_chunk() -> int:
 
 func _chunk_color() -> Color:
 	var settings := _active_biome_settings()
+	var palette := _active_biome_palette()
+	var ground_color: Color = palette["ground"]
 	var hue := fmod(abs(float(chunk_coord.x) * 0.17 + float(chunk_coord.y) * 0.23 + float(settings["hue"])), 1.0)
-	return Color.from_hsv(hue, float(settings["saturation"]), float(settings["lightness"]))
+	var biome_variation := Color.from_hsv(hue, float(settings["saturation"]), float(settings["lightness"]))
+	return ground_color.lerp(biome_variation, 0.22)
 
 func _add_ground() -> void:
 	var body := StaticBody3D.new()
@@ -216,8 +259,9 @@ func _add_ground() -> void:
 	var mesh := MeshInstance3D.new()
 	var cube := BoxMesh.new()
 	cube.size = Vector3(chunk_size, 1.0, chunk_size)
-	var material := StandardMaterial3D.new()
-	material.albedo_color = _chunk_color()
+	var palette := _active_biome_palette()
+	var trail_color: Color = palette["trail"]
+	var material := _placeholder_material(_chunk_color(), trail_color, "speckle")
 	cube.material = material
 	mesh.mesh = cube
 	mesh.position = Vector3(half_size, -0.5, half_size)
@@ -225,6 +269,83 @@ func _add_ground() -> void:
 	body.add_child(collision)
 	body.add_child(mesh)
 	add_child(body)
+
+func _add_environment_placeholders(rng: RandomNumberGenerator) -> void:
+	var palette := _active_biome_palette()
+	var biome_name := String(palette["name"])
+	var root := Node3D.new()
+	root.name = "PlaceholderEnvironment_%s" % biome_name
+	root.add_to_group("placeholder_environment")
+	root.set_meta("biome", biome_name)
+	root.set_meta("placeholder_content", true)
+	add_child(root)
+
+	_add_trail_markers(root, palette)
+	match _active_biome:
+		BiomeKind.FOREST:
+			_add_forest_placeholder_props(root, rng, palette)
+		BiomeKind.BADLANDS:
+			_add_badlands_placeholder_props(root, rng, palette)
+		BiomeKind.HILLS:
+			_add_hills_placeholder_props(root, rng, palette)
+		_:
+			_add_plains_placeholder_props(root, rng, palette)
+
+func _add_trail_markers(parent: Node3D, palette: Dictionary) -> void:
+	var trail_color: Color = palette["trail"]
+	var accent_color: Color = palette["accent"]
+	for i in range(5):
+		var x := chunk_size * (0.16 + float(i) * 0.17)
+		var z := chunk_size * 0.5 + sin(float(i) * 0.9 + float(chunk_coord.x)) * 1.4
+		var trail := _add_artifact_box(parent, Vector3(3.4, 0.045, 0.22), Vector3(x, 0.04, z), trail_color, false, "stripe")
+		_add_placeholder_animation(trail, "pulse", 0.01, 0.6, float(i))
+	for i in range(3):
+		var z := chunk_size * (0.24 + float(i) * 0.22)
+		_add_artifact_box(parent, Vector3(0.18, 0.08, 2.4), Vector3(chunk_size * 0.5, 0.08, z), accent_color.darkened(0.12), false, "checker")
+
+func _add_plains_placeholder_props(parent: Node3D, rng: RandomNumberGenerator, palette: Dictionary) -> void:
+	var prop_color: Color = palette["prop"]
+	var accent_color: Color = palette["accent"]
+	for i in range(6):
+		var position := Vector3(rng.randf_range(4.0, chunk_size - 4.0), 0.22, rng.randf_range(4.0, chunk_size - 4.0))
+		var grass := _add_artifact_box(parent, Vector3(0.18, 0.44, 0.18), position, prop_color.lerp(accent_color, rng.randf_range(0.15, 0.45)), false, "stripe")
+		_add_placeholder_animation(grass, "sway", 0.025, rng.randf_range(0.8, 1.4), rng.randf_range(0.0, TAU))
+
+func _add_forest_placeholder_props(parent: Node3D, rng: RandomNumberGenerator, palette: Dictionary) -> void:
+	var trunk_color := Color(0.30, 0.20, 0.14)
+	var prop_color: Color = palette["prop"]
+	var accent_color: Color = palette["accent"]
+	for i in range(4):
+		var base := Vector3(rng.randf_range(5.0, chunk_size - 5.0), 0.0, rng.randf_range(5.0, chunk_size - 5.0))
+		_add_artifact_box(parent, Vector3(0.42, 1.9, 0.42), base + Vector3(0.0, 0.95, 0.0), trunk_color, false, "stripe")
+		var canopy := _add_artifact_box(parent, Vector3(1.5, 1.0, 1.5), base + Vector3(0.0, 2.05, 0.0), prop_color.lerp(accent_color, 0.28), false, "speckle")
+		_add_placeholder_animation(canopy, "sway", 0.035, rng.randf_range(0.6, 1.1), rng.randf_range(0.0, TAU))
+
+func _add_badlands_placeholder_props(parent: Node3D, rng: RandomNumberGenerator, palette: Dictionary) -> void:
+	var prop_color: Color = palette["prop"]
+	var accent_color: Color = palette["accent"]
+	for i in range(5):
+		var base := Vector3(rng.randf_range(4.0, chunk_size - 4.0), 0.0, rng.randf_range(4.0, chunk_size - 4.0))
+		var height := rng.randf_range(0.55, 1.7)
+		var rib := _add_artifact_box(parent, Vector3(0.34, height, 1.1), base + Vector3(0.0, height * 0.5, 0.0), prop_color.lerp(accent_color, 0.18), false, "checker")
+		rib.rotation.y = rng.randf_range(-0.55, 0.55)
+		_add_placeholder_animation(rib, "pulse", 0.012, 0.45, rng.randf_range(0.0, TAU))
+
+func _add_hills_placeholder_props(parent: Node3D, rng: RandomNumberGenerator, palette: Dictionary) -> void:
+	var prop_color: Color = palette["prop"]
+	var accent_color: Color = palette["accent"]
+	for i in range(4):
+		var base := Vector3(rng.randf_range(5.0, chunk_size - 5.0), 0.0, rng.randf_range(5.0, chunk_size - 5.0))
+		for tier in range(3):
+			var scale := 0.85 - float(tier) * 0.18
+			var stone := _add_artifact_box(parent, Vector3(scale, 0.22, scale), base + Vector3(0.0, 0.11 + float(tier) * 0.22, 0.0), prop_color.lerp(accent_color, float(tier) * 0.12), false, "speckle")
+			stone.rotation.y = rng.randf_range(-0.45, 0.45)
+
+func _add_chunk_audio_cue() -> void:
+	var palette := _active_biome_palette()
+	var frequency := float(palette["audio_frequency"])
+	var cue_position := Vector3(chunk_size * 0.5, 1.2, chunk_size * 0.5)
+	_add_audio_cue(self, "%s ambience" % String(palette["name"]), cue_position, "environment", frequency)
 
 func _add_obstacles(rng: RandomNumberGenerator) -> void:
 	var half_size := chunk_size * 0.5
@@ -290,34 +411,41 @@ func _add_creature_clusters(rng: RandomNumberGenerator) -> void:
 		)
 		_spawn_creature_cluster(rng, center, creature, member_count)
 
-func _add_box_obstacle(width: float, height: float, depth: float, position: Vector3, color: Color = Color(0.42, 0.44, 0.46), is_physical: bool = true) -> void:
+func _add_box_obstacle(width: float, height: float, depth: float, position: Vector3, color: Color = Color(0.42, 0.44, 0.46), is_physical: bool = true, texture_kind: String = "checker") -> StaticBody3D:
 	var body := StaticBody3D.new()
 	if is_physical:
 		body.collision_layer = OBSTACLE_LAYER
 		body.collision_mask = WORLD_LAYER | PLAYER_LAYER
+	else:
+		body.collision_layer = 0
+		body.collision_mask = 0
 
-	var shape := BoxShape3D.new()
-	shape.size = Vector3(width, height, depth)
-	var collision := CollisionShape3D.new()
-	collision.position = position
-	collision.shape = shape
+	if is_physical:
+		var shape := BoxShape3D.new()
+		shape.size = Vector3(width, height, depth)
+		var collision := CollisionShape3D.new()
+		collision.position = position
+		collision.shape = shape
+		body.add_child(collision)
 
 	var mesh := MeshInstance3D.new()
 	var box := BoxMesh.new()
 	box.size = Vector3(width, height, depth)
-	var material := StandardMaterial3D.new()
-	material.albedo_color = color
+	var material := _placeholder_material(color, color.lightened(0.16), texture_kind)
 	box.material = material
 	mesh.mesh = box
 	mesh.position = position
 	mesh.position.y += 0.01
 
-	body.add_child(collision)
 	body.add_child(mesh)
 	add_child(body)
+	body.add_to_group("placeholder_world_props")
+	body.set_meta("placeholder_physical", is_physical)
+	return body
 
 func _spawn_creature_cluster(rng: RandomNumberGenerator, center: Vector3, definition: Dictionary, member_count: int) -> void:
 	var radius := rng.randf_range(1.0, 2.2)
+	_add_audio_cue(self, "%s cluster" % String(definition["name"]), center + Vector3(0.0, 1.0, 0.0), "creature", _creature_cue_frequency(definition))
 	for i in range(max(2, member_count)):
 		var angle := TAU * float(i) / float(max(2, member_count)) + rng.randf_range(-0.35, 0.35)
 		var offset := Vector3(cos(angle), 0.0, sin(angle)) * radius
@@ -329,8 +457,8 @@ func _add_creature(definition: Dictionary, position: Vector3) -> void:
 	var mesh_name := String(definition["mesh"])
 
 	var mesh := _shape_mesh(mesh_name, size)
-	var material := StandardMaterial3D.new()
-	material.albedo_color = definition["color"]
+	var creature_color: Color = definition["color"]
+	var material := _placeholder_material(creature_color, creature_color.lightened(0.22), "speckle")
 	mesh.material = material
 	mesh_instance.mesh = mesh
 	mesh_instance.position = Vector3(
@@ -339,7 +467,11 @@ func _add_creature(definition: Dictionary, position: Vector3) -> void:
 		position.z
 	)
 	mesh_instance.name = "Creature_%s" % definition["name"]
+	mesh_instance.add_to_group("placeholder_creatures")
+	mesh_instance.set_meta("creature_name", definition["name"])
+	mesh_instance.set_meta("placeholder_art", true)
 	add_child(mesh_instance)
+	_add_placeholder_animation(mesh_instance, "bob", 0.045, 0.9 + size, float(position.x + position.z))
 
 func _shape_mesh(shape_name: String, size: float) -> Mesh:
 	var mesh: Mesh
@@ -367,26 +499,46 @@ func _shape_mesh(shape_name: String, size: float) -> Mesh:
 	return mesh
 
 func _spawn_town_market(origin: Vector3) -> void:
-	_add_box_obstacle(6.8, 0.65, 5.4, origin + Vector3(0.0, 0.0, 0.0), Color(0.76, 0.69, 0.47), true)
-	_add_box_obstacle(1.4, 1.0, 1.4, origin + Vector3(-2.2, 0.0, -0.8), Color(0.78, 0.52, 0.33), true)
-	_add_box_obstacle(1.1, 0.8, 1.1, origin + Vector3(0.9, 0.0, 1.2), Color(0.73, 0.62, 0.52), true)
-	_add_box_obstacle(1.0, 0.9, 1.0, origin + Vector3(2.1, 0.0, -1.4), Color(0.72, 0.60, 0.55), true)
-	_add_box_obstacle(1.5, 0.3, 1.5, origin + Vector3(0.0, 1.2, 0.0), Color(0.95, 0.87, 0.59), false)
+	var town_root := _add_town_placeholder_marker(origin, "market", 392.0)
+	_add_box_obstacle(6.8, 0.65, 5.4, origin + Vector3(0.0, 0.0, 0.0), Color(0.76, 0.69, 0.47), true, "checker")
+	_add_box_obstacle(1.4, 1.0, 1.4, origin + Vector3(-2.2, 0.0, -0.8), Color(0.78, 0.52, 0.33), true, "stripe")
+	_add_box_obstacle(1.1, 0.8, 1.1, origin + Vector3(0.9, 0.0, 1.2), Color(0.73, 0.62, 0.52), true, "checker")
+	_add_box_obstacle(1.0, 0.9, 1.0, origin + Vector3(2.1, 0.0, -1.4), Color(0.72, 0.60, 0.55), true, "speckle")
+	_add_box_obstacle(1.5, 0.3, 1.5, origin + Vector3(0.0, 1.2, 0.0), Color(0.95, 0.87, 0.59), false, "stripe")
+	var awning := _add_artifact_box(town_root, Vector3(3.6, 0.12, 1.2), origin + Vector3(0.0, 1.05, -2.0), Color(0.95, 0.76, 0.38), true, "stripe")
+	_add_placeholder_animation(awning, "sway", 0.025, 1.1, origin.x)
 
 func _spawn_town_fort(origin: Vector3) -> void:
-	_add_box_obstacle(7.2, 1.0, 0.7, origin + Vector3(0.0, 0.0, -2.8), Color(0.45, 0.36, 0.33), true)
-	_add_box_obstacle(7.2, 1.0, 0.7, origin + Vector3(0.0, 0.0, 2.8), Color(0.45, 0.36, 0.33), true)
-	_add_box_obstacle(0.7, 1.0, 7.2, origin + Vector3(-2.8, 0.0, 0.0), Color(0.45, 0.36, 0.33), true)
-	_add_box_obstacle(0.7, 1.0, 7.2, origin + Vector3(2.8, 0.0, 0.0), Color(0.45, 0.36, 0.33), true)
-	_add_box_obstacle(1.3, 2.3, 1.3, origin + Vector3(0.0, 0.0, 0.0), Color(0.62, 0.53, 0.44), true)
-	_add_box_obstacle(1.8, 3.0, 1.8, origin + Vector3(0.0, 1.8, 0.0), Color(0.83, 0.78, 0.67), true)
+	var town_root := _add_town_placeholder_marker(origin, "fort", 220.0)
+	_add_box_obstacle(7.2, 1.0, 0.7, origin + Vector3(0.0, 0.0, -2.8), Color(0.45, 0.36, 0.33), true, "speckle")
+	_add_box_obstacle(7.2, 1.0, 0.7, origin + Vector3(0.0, 0.0, 2.8), Color(0.45, 0.36, 0.33), true, "speckle")
+	_add_box_obstacle(0.7, 1.0, 7.2, origin + Vector3(-2.8, 0.0, 0.0), Color(0.45, 0.36, 0.33), true, "speckle")
+	_add_box_obstacle(0.7, 1.0, 7.2, origin + Vector3(2.8, 0.0, 0.0), Color(0.45, 0.36, 0.33), true, "speckle")
+	_add_box_obstacle(1.3, 2.3, 1.3, origin + Vector3(0.0, 0.0, 0.0), Color(0.62, 0.53, 0.44), true, "checker")
+	_add_box_obstacle(1.8, 3.0, 1.8, origin + Vector3(0.0, 1.8, 0.0), Color(0.83, 0.78, 0.67), true, "stripe")
+	var banner := _add_artifact_box(town_root, Vector3(0.18, 1.4, 0.55), origin + Vector3(0.0, 3.25, -0.95), Color(0.70, 0.18, 0.16), true, "stripe")
+	_add_placeholder_animation(banner, "sway", 0.018, 1.2, origin.z)
 
 func _spawn_town_farm(origin: Vector3) -> void:
-	_add_box_obstacle(6.0, 0.45, 1.2, origin + Vector3(0.0, 0.0, -1.9), Color(0.72, 0.62, 0.44), true)
-	_add_box_obstacle(1.4, 0.8, 1.4, origin + Vector3(-2.1, 0.0, 1.0), Color(0.62, 0.72, 0.53), true)
-	_add_box_obstacle(1.2, 0.8, 1.1, origin + Vector3(0.5, 0.0, 1.2), Color(0.54, 0.66, 0.53), true)
-	_add_box_obstacle(1.3, 0.9, 1.4, origin + Vector3(2.0, 0.0, 0.7), Color(0.52, 0.63, 0.50), true)
-	_add_box_obstacle(1.0, 0.6, 1.0, origin + Vector3(-0.2, 0.0, -1.4), Color(0.84, 0.86, 0.72), false)
+	var town_root := _add_town_placeholder_marker(origin, "farm", 329.63)
+	_add_box_obstacle(6.0, 0.45, 1.2, origin + Vector3(0.0, 0.0, -1.9), Color(0.72, 0.62, 0.44), true, "stripe")
+	_add_box_obstacle(1.4, 0.8, 1.4, origin + Vector3(-2.1, 0.0, 1.0), Color(0.62, 0.72, 0.53), true, "checker")
+	_add_box_obstacle(1.2, 0.8, 1.1, origin + Vector3(0.5, 0.0, 1.2), Color(0.54, 0.66, 0.53), true, "checker")
+	_add_box_obstacle(1.3, 0.9, 1.4, origin + Vector3(2.0, 0.0, 0.7), Color(0.52, 0.63, 0.50), true, "speckle")
+	_add_box_obstacle(1.0, 0.6, 1.0, origin + Vector3(-0.2, 0.0, -1.4), Color(0.84, 0.86, 0.72), false, "speckle")
+	for i in range(3):
+		var crop := _add_artifact_box(town_root, Vector3(1.5, 0.16, 0.28), origin + Vector3(-2.2 + float(i) * 2.1, 0.14, 2.9), Color(0.35, 0.58, 0.27), false, "stripe")
+		_add_placeholder_animation(crop, "sway", 0.018, 0.9 + float(i) * 0.12, origin.x + float(i))
+
+func _add_town_placeholder_marker(origin: Vector3, variant: String, cue_frequency: float) -> Node3D:
+	var town_root := Node3D.new()
+	town_root.name = "PlaceholderTown_%s" % variant.capitalize()
+	town_root.add_to_group("placeholder_towns")
+	town_root.set_meta("variant", variant)
+	town_root.set_meta("placeholder_content", true)
+	add_child(town_root)
+	_add_audio_cue(town_root, "town %s" % variant, origin + Vector3(0.0, 1.35, 0.0), "town", cue_frequency)
+	return town_root
 
 func set_lion_pressure(stage: int, density_scale: float, active_lion_positions: Array = []) -> void:
 	_lion_pressure_stage = int(clamp(stage, 0, 4))
@@ -652,20 +804,17 @@ func _add_settlement_npc(parent: Node3D, role: String, position: Vector3, color:
 		mesh_instance.add_to_group("town_pressure_enemies")
 	parent.add_child(mesh_instance)
 
-func _add_artifact_box(parent: Node3D, size: Vector3, position: Vector3, color: Color, emissive: bool) -> void:
+func _add_artifact_box(parent: Node3D, size: Vector3, position: Vector3, color: Color, emissive: bool, texture_kind: String = "checker") -> MeshInstance3D:
 	var mesh_instance := MeshInstance3D.new()
 	var box := BoxMesh.new()
 	box.size = size
-	var material := StandardMaterial3D.new()
-	material.albedo_color = color
-	if emissive:
-		material.emission_enabled = true
-		material.emission = color
-		material.emission_energy_multiplier = 0.25
+	var material := _placeholder_material(color, color.lightened(0.14), texture_kind, emissive)
 	box.material = material
 	mesh_instance.mesh = box
 	mesh_instance.position = position
 	parent.add_child(mesh_instance)
+	mesh_instance.add_to_group("placeholder_world_props")
+	return mesh_instance
 
 func _refresh_lion_pressure_markers() -> void:
 	_clear_lion_pressure_markers()
@@ -704,19 +853,89 @@ func _add_lion_pressure_marker(index: int, center: Vector3) -> void:
 	if _lion_pressure_stage >= 4:
 		_add_pressure_box(marker_root, Vector3(0.42, 2.4, 0.42), center + Vector3(0.0, 1.2, 0.0), color)
 
-func _add_pressure_box(parent: Node3D, size: Vector3, position: Vector3, color: Color) -> void:
+func _add_pressure_box(parent: Node3D, size: Vector3, position: Vector3, color: Color) -> MeshInstance3D:
 	var mesh_instance := MeshInstance3D.new()
 	var box := BoxMesh.new()
 	box.size = size
-	var material := StandardMaterial3D.new()
-	material.albedo_color = color
-	material.emission_enabled = true
-	material.emission = color
-	material.emission_energy_multiplier = 0.35
+	var material := _placeholder_material(color, color.lightened(0.18), "stripe", true)
 	box.material = material
 	mesh_instance.mesh = box
 	mesh_instance.position = position
 	parent.add_child(mesh_instance)
+	mesh_instance.add_to_group("placeholder_world_props")
+	return mesh_instance
+
+func _placeholder_material(base: Color, accent: Color, texture_kind: String = "checker", emissive: bool = false) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = base
+	material.albedo_texture = _placeholder_texture(base, accent, texture_kind)
+	material.roughness = 0.84
+	if emissive:
+		material.emission_enabled = true
+		material.emission = base
+		material.emission_energy_multiplier = 0.28
+	return material
+
+func _placeholder_texture(base: Color, accent: Color, texture_kind: String) -> Texture2D:
+	var image := Image.create(PLACEHOLDER_TEXTURE_SIZE, PLACEHOLDER_TEXTURE_SIZE, false, Image.FORMAT_RGBA8)
+	for x in range(PLACEHOLDER_TEXTURE_SIZE):
+		for y in range(PLACEHOLDER_TEXTURE_SIZE):
+			var use_accent := false
+			match texture_kind:
+				"stripe":
+					use_accent = x % 4 < 2
+				"speckle":
+					use_accent = (x * 11 + y * 7 + chunk_coord.x * 3 + chunk_coord.y * 5) % 9 == 0
+				_:
+					use_accent = (x + y) % 2 == 0
+			image.set_pixel(x, y, accent if use_accent else base)
+	return ImageTexture.create_from_image(image)
+
+func _add_placeholder_animation(target: Node3D, motion: String, amplitude: float, speed: float, start_offset: float) -> void:
+	if target == null:
+		return
+	var animator := Node.new()
+	animator.name = "PlaceholderAnimation_%s" % motion
+	animator.set_script(PlaceholderAnimatorScript)
+	animator.set("motion", motion)
+	animator.set("amplitude", amplitude)
+	animator.set("speed", speed)
+	animator.set("start_offset", start_offset)
+	target.add_child(animator)
+
+func _add_audio_cue(parent: Node3D, cue_name: String, position: Vector3, role: String, frequency: float) -> void:
+	var cue := AudioStreamPlayer3D.new()
+	cue.set_script(PlaceholderAudioCueScript)
+	cue.set("cue_name", cue_name)
+	cue.set("cue_role", role)
+	cue.set("frequency_hz", frequency)
+	cue.set("duration_seconds", 0.28)
+	cue.position = position
+	parent.add_child(cue)
+
+func _creature_cue_frequency(definition: Dictionary) -> float:
+	var name := String(definition.get("name", "Creature"))
+	match name:
+		"Rabbit":
+			return 659.25
+		"Deer":
+			return 493.88
+		"Sheep":
+			return 523.25
+		"Falcon":
+			return 880.00
+		"Bandit":
+			return 174.61
+		"Wolf":
+			return 196.00
+		"Wraith":
+			return 277.18
+		"Beast":
+			return 146.83
+		"Sentinel":
+			return 220.00
+		_:
+			return 440.00
 
 func _resolve_biome() -> int:
 	var region_scale: int = 5
@@ -734,6 +953,9 @@ func _resolve_biome() -> int:
 
 func _active_biome_settings() -> Dictionary:
 	return BIOME_LIBRARY.get(_active_biome, BIOME_LIBRARY[BiomeKind.PLAINS])
+
+func _active_biome_palette() -> Dictionary:
+	return PLACEHOLDER_BIOME_PALETTES.get(_active_biome, PLACEHOLDER_BIOME_PALETTES[BiomeKind.PLAINS])
 
 func _pick_creature_definition(rng: RandomNumberGenerator, is_hostile: bool) -> Dictionary:
 	var settings := _active_biome_settings()

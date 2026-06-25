@@ -79,6 +79,14 @@ func _run() -> void:
 	_expect((tuning_snapshot["ai_state_counts"] as Dictionary).size() > 0, "Debug snapshot exposes active AI state counts")
 	_expect(int(tuning_snapshot["snapshot_schema"]) == 1, "World snapshot stub returns schema version")
 
+	var polish_snapshot := await _placeholder_polish_snapshot()
+	_expect(bool(polish_snapshot["has_onboarding"]), "WorldRoot exposes onboarding card content")
+	_expect(int(polish_snapshot["town_count"]) > 0, "Placeholder towns are generated in the main scene")
+	_expect(int(polish_snapshot["environment_count"]) > 0, "Biome placeholder environment props are generated")
+	_expect(int(polish_snapshot["creature_count"]) > 0, "Placeholder creature art is generated")
+	_expect(int(polish_snapshot["animation_count"]) > 0, "Placeholder animations are attached to generated art")
+	_expect(int(polish_snapshot["audio_cue_count"]) > 0, "Placeholder audio cue nodes are generated")
+
 	test_root.queue_free()
 	if _failures > 0:
 		quit(1)
@@ -180,6 +188,48 @@ func _game_loop_tuning_snapshot() -> Dictionary:
 	snapshot["snapshot_schema"] = int(world_snapshot.get("schema_version", 0))
 	world.queue_free()
 	return snapshot
+
+func _placeholder_polish_snapshot() -> Dictionary:
+	var snapshot := {
+		"has_onboarding": false,
+		"town_count": 0,
+		"environment_count": 0,
+		"creature_count": 0,
+		"animation_count": 0,
+		"audio_cue_count": 0,
+	}
+	var world := WORLD_SCENE.instantiate()
+	root.add_child(world)
+	await process_frame
+	await _step_physics(2)
+
+	var onboarding_text := ""
+	if world.has_method("get_onboarding_text"):
+		onboarding_text = String(world.call("get_onboarding_text"))
+	snapshot["has_onboarding"] = world.has_node("HUD/OnboardingCard") and onboarding_text.find("WASD") >= 0
+	snapshot["town_count"] = _count_world_group(world, "placeholder_towns")
+	snapshot["environment_count"] = _count_world_group(world, "placeholder_environment")
+	snapshot["creature_count"] = _count_world_group(world, "placeholder_creatures")
+	snapshot["animation_count"] = _count_world_group(world, "placeholder_animation")
+	snapshot["audio_cue_count"] = _count_world_group(world, "placeholder_audio_cues")
+	world.queue_free()
+	return snapshot
+
+func _count_world_group(world: Node, group_name: String) -> int:
+	var count := 0
+	for node in root.get_tree().get_nodes_in_group(group_name):
+		var group_node := node as Node
+		if group_node != null and _is_descendant_of(group_node, world):
+			count += 1
+	return count
+
+func _is_descendant_of(node: Node, ancestor: Node) -> bool:
+	var current := node
+	while current != null:
+		if current == ancestor:
+			return true
+		current = current.get_parent()
+	return false
 
 func _expect(condition: bool, message: String) -> void:
 	if condition:

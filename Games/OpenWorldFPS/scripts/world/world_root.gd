@@ -4,6 +4,7 @@ const GameLoopSettingsResource := preload("res://scripts/world/game_loop_setting
 
 const DEFAULT_GAME_LOOP_SETTINGS := "res://resources/world/game_loop_settings.tres"
 const DEAD_TEXT := "DEAD - Press R to reload and continue"
+const READY_TEXT := "WASD move | LMB shoot | H hide onboarding | G debug | I inspector"
 const SECONDS_PER_GAME_DAY := 86400.0
 const SNAPSHOT_SCHEMA_VERSION := 1
 
@@ -29,6 +30,10 @@ const SNAPSHOT_SCHEMA_VERSION := 1
 @onready var snapshot_label: Label = $HUD/HUDPanel/HUDRows/SnapshotLabel
 @onready var debug_panel: PanelContainer = $HUD/DebugPanel
 @onready var debug_label: Label = $HUD/DebugPanel/DebugRows/DebugLabel
+@onready var onboarding_card: PanelContainer = $HUD/OnboardingCard
+@onready var onboarding_title_label: Label = $HUD/OnboardingCard/OnboardingRows/TitleLabel
+@onready var onboarding_body_label: Label = $HUD/OnboardingCard/OnboardingRows/BodyLabel
+@onready var onboarding_controls_label: Label = $HUD/OnboardingCard/OnboardingRows/ControlsLabel
 
 var _time_of_day_seconds: float = 0.0
 var _day_index: int = 1
@@ -59,6 +64,7 @@ func _ready() -> void:
 	_configure_diagnostics()
 	_connect_player_hud()
 	_connect_lion_pressure_hud()
+	_configure_onboarding_card()
 	_update_time_hud()
 	_update_snapshot_hud()
 	_apply_time_of_day_to_lighting()
@@ -80,6 +86,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		save_world_snapshot()
 	if event.is_action_pressed("load_world_snapshot"):
 		load_world_snapshot()
+	if event.is_action_pressed("dismiss_onboarding"):
+		set_onboarding_visible(false)
 
 func set_debug_view_visible(visible: bool) -> void:
 	_debug_visible = visible
@@ -88,6 +96,20 @@ func set_debug_view_visible(visible: bool) -> void:
 func set_inspector_view_visible(visible: bool) -> void:
 	_inspector_visible = visible
 	_update_debug_view(true)
+
+func set_onboarding_visible(visible: bool) -> void:
+	if onboarding_card != null:
+		onboarding_card.visible = visible
+
+func get_onboarding_text() -> String:
+	var lines := PackedStringArray()
+	if onboarding_title_label != null:
+		lines.append(onboarding_title_label.text)
+	if onboarding_body_label != null:
+		lines.append(onboarding_body_label.text)
+	if onboarding_controls_label != null:
+		lines.append(onboarding_controls_label.text)
+	return "\n".join(lines)
 
 func save_world_snapshot() -> Dictionary:
 	var snapshot := get_world_state_snapshot()
@@ -229,6 +251,11 @@ func _configure_diagnostics() -> void:
 	if debug_panel != null:
 		debug_panel.visible = _debug_visible
 
+func _configure_onboarding_card() -> void:
+	if onboarding_card == null:
+		return
+	onboarding_card.visible = true
+
 func _advance_time_of_day(delta: float) -> void:
 	if game_loop_settings == null or not game_loop_settings.time_progression_enabled:
 		return
@@ -298,7 +325,7 @@ func _on_settlement_pressure_changed(summary: Dictionary) -> void:
 	_update_debug_view()
 
 func _on_death_state_changed(is_dead: bool) -> void:
-	status_label.text = DEAD_TEXT if is_dead else "Press LMB to shoot and WASD to move"
+	status_label.text = DEAD_TEXT if is_dead else READY_TEXT
 
 func _update_time_hud() -> void:
 	if time_label != null:

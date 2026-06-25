@@ -65,6 +65,10 @@ load_world_snapshot={
 "deadzone": 0.0,
 "events": [ Object(InputEventKey, "physical_keycode":79, "unicode":79, "pressed":false, "echo":false, "device":-1) ]
 }
+dismiss_onboarding={
+"deadzone": 0.0,
+"events": [ Object(InputEventKey, "physical_keycode":72, "unicode":72, "pressed":false, "echo":false, "device":-1) ]
+}
 
 [layer_names]
 3d_physics/layer_1="World"
