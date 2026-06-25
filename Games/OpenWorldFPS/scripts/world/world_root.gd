@@ -4,6 +4,8 @@ extends Node3D
 @export var chunk_size: float = 48.0
 @export var load_radius: int = 1
 @export var obstacles_per_chunk: int = 12
+@export_range(0.25, 1.0, 0.05) var far_chunk_density: float = 0.45
+@export_range(1, 20) var chunk_distance_falloff: int = 6
 
 @onready var chunk_manager := $ChunkManager
 @onready var player := $Player
@@ -13,6 +15,8 @@ func _ready() -> void:
 	chunk_manager.chunk_size = chunk_size
 	chunk_manager.load_radius = load_radius
 	chunk_manager.obstacles_per_chunk = obstacles_per_chunk
+	chunk_manager.far_chunk_density = far_chunk_density
+	chunk_manager.chunk_distance_falloff = chunk_distance_falloff
 	chunk_manager.player_path = "../Player"
 
 	if not player:
