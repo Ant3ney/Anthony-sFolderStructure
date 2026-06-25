@@ -29,9 +29,17 @@ move_right={
 "deadzone": 0.0,
 "events": [ Object(InputEventKey, "physical_keycode":68, "unicode":68, "pressed":false, "echo":false, "device":-1) ]
 }
+shoot={
+"deadzone": 0.0,
+"events": [ Object(InputEventMouseButton, "button_index":1, "pressed":false, "device":-1) ]
+}
 jump={
 "deadzone": 0.0,
 "events": [ Object(InputEventKey, "physical_keycode":32, "unicode":32, "pressed":false, "echo":false, "device":-1) ]
+}
+reload={
+"deadzone": 0.0,
+"events": [ Object(InputEventKey, "physical_keycode":82, "unicode":82, "pressed":false, "echo":false, "device":-1) ]
 }
 run={
 "deadzone": 0.0,
