@@ -100,10 +100,20 @@ const HOSTILE_CREATURES: Array[Dictionary] = [
 ]
 
 const TOWN_VARIANT_COUNT := 3
+const LION_PRESSURE_COLORS: Array[Color] = [
+	Color(0.85, 0.86, 0.76),
+	Color(0.92, 0.76, 0.35),
+	Color(0.95, 0.48, 0.22),
+	Color(0.76, 0.12, 0.11),
+	Color(0.16, 0.03, 0.04)
+]
 
 var _active_biome: int = BiomeKind.PLAINS
 var _distance_to_player: int = 0
 var _population_scale: float = 1.0
+var _lion_pressure_stage: int = 0
+var _lion_density_scale: float = 1.0
+var _town_centers: Array[Vector3] = []
 
 func initialize(coord: Vector2i, seed: int, chunk_scale: float, obstacle_total: int, player_distance: int, population_scale: float) -> void:
 	chunk_coord = coord
@@ -118,6 +128,7 @@ func _generate_chunk() -> void:
 	for child in get_children():
 		child.queue_free()
 
+	_town_centers.clear()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = _seed_from_chunk()
 
@@ -127,6 +138,7 @@ func _generate_chunk() -> void:
 	_add_obstacles(rng)
 	_add_towns(rng)
 	_add_creature_clusters(rng)
+	_refresh_lion_pressure_markers()
 
 func _seed_from_chunk() -> int:
 	var x := chunk_coord.x
@@ -202,6 +214,7 @@ func _add_towns(rng: RandomNumberGenerator) -> void:
 			0.0,
 			rng.randf_range(margin, chunk_size - margin)
 		)
+		_town_centers.append(center)
 		var variant := rng.randi_range(0, TOWN_VARIANT_COUNT - 1)
 		match variant:
 			0:
@@ -323,6 +336,74 @@ func _spawn_town_farm(origin: Vector3) -> void:
 	_add_box_obstacle(1.2, 0.8, 1.1, origin + Vector3(0.5, 0.0, 1.2), Color(0.54, 0.66, 0.53), true)
 	_add_box_obstacle(1.3, 0.9, 1.4, origin + Vector3(2.0, 0.0, 0.7), Color(0.52, 0.63, 0.50), true)
 	_add_box_obstacle(1.0, 0.6, 1.0, origin + Vector3(-0.2, 0.0, -1.4), Color(0.84, 0.86, 0.72), false)
+
+func set_lion_pressure(stage: int, density_scale: float) -> void:
+	_lion_pressure_stage = int(clamp(stage, 0, 4))
+	_lion_density_scale = clampf(density_scale, 0.0, 5.0)
+	_refresh_lion_pressure_markers()
+
+func get_lion_pressure_stage() -> int:
+	return _lion_pressure_stage
+
+func get_lion_density_scale() -> float:
+	return _lion_density_scale
+
+func get_town_centers() -> Array[Vector3]:
+	var centers: Array[Vector3] = []
+	for center in _town_centers:
+		centers.append(center)
+	return centers
+
+func _refresh_lion_pressure_markers() -> void:
+	_clear_lion_pressure_markers()
+	if _lion_pressure_stage <= 0:
+		return
+
+	for i in _town_centers.size():
+		_add_lion_pressure_marker(i, _town_centers[i])
+
+func _clear_lion_pressure_markers() -> void:
+	for child in get_children():
+		if child.name.begins_with("LionPressureMarker"):
+			child.queue_free()
+
+func _add_lion_pressure_marker(index: int, center: Vector3) -> void:
+	var marker_root := Node3D.new()
+	marker_root.name = "LionPressureMarker_%d_%d" % [_lion_pressure_stage, index]
+	marker_root.add_to_group("lion_pressure_markers")
+	add_child(marker_root)
+
+	var color := LION_PRESSURE_COLORS[_lion_pressure_stage]
+	var marker_count: int = max(1, min(8, _lion_pressure_stage + int(round(_lion_density_scale))))
+	var radius := 4.0 + float(_lion_pressure_stage) * 0.65
+	for i in range(marker_count):
+		var angle := TAU * float(i) / float(marker_count)
+		var offset := Vector3(cos(angle), 0.0, sin(angle)) * radius
+		var height := 0.65 + float(_lion_pressure_stage) * 0.22
+		_add_pressure_box(marker_root, Vector3(0.22, height, 0.22), center + offset + Vector3(0.0, height * 0.5, 0.0), color)
+		if _lion_pressure_stage >= 3:
+			_add_pressure_box(marker_root, Vector3(0.78, 0.08, 0.16), center + offset + Vector3(0.0, height + 0.12, 0.0), color.darkened(0.2))
+
+	if _lion_pressure_stage >= 2:
+		_add_pressure_box(marker_root, Vector3(radius * 1.5, 0.06, 0.14), center + Vector3(0.0, 0.08, 0.0), color.darkened(0.35))
+		_add_pressure_box(marker_root, Vector3(0.14, 0.06, radius * 1.5), center + Vector3(0.0, 0.09, 0.0), color.darkened(0.35))
+
+	if _lion_pressure_stage >= 4:
+		_add_pressure_box(marker_root, Vector3(0.42, 2.4, 0.42), center + Vector3(0.0, 1.2, 0.0), color)
+
+func _add_pressure_box(parent: Node3D, size: Vector3, position: Vector3, color: Color) -> void:
+	var mesh_instance := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = size
+	var material := StandardMaterial3D.new()
+	material.albedo_color = color
+	material.emission_enabled = true
+	material.emission = color
+	material.emission_energy_multiplier = 0.35
+	box.material = material
+	mesh_instance.mesh = box
+	mesh_instance.position = position
+	parent.add_child(mesh_instance)
 
 func _resolve_biome() -> int:
 	var region_scale: int = 5

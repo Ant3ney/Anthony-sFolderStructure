@@ -11,8 +11,10 @@ const DEAD_TEXT := "DEAD - Press R to reload and continue"
 
 @onready var chunk_manager := $ChunkManager
 @onready var player: Node = $Player
+@onready var lion_pressure_director: Node = $LionPressureDirector
 @onready var health_label: Label = $HUD/HUDPanel/HUDRows/HealthLabel
 @onready var alert_label: Label = $HUD/HUDPanel/HUDRows/AlertLabel
+@onready var lion_pressure_label: Label = $HUD/HUDPanel/HUDRows/LionPressureLabel
 @onready var lock_label: Label = $HUD/HUDPanel/HUDRows/TargetLockLabel
 @onready var status_label: Label = $HUD/HUDPanel/HUDRows/StatusLabel
 
@@ -31,6 +33,7 @@ func _ready() -> void:
 		push_error("ChunkManager missing from WorldRoot.")
 		return
 	_connect_player_hud()
+	_connect_lion_pressure_hud()
 
 
 func _connect_player_hud() -> void:
@@ -47,6 +50,19 @@ func _connect_player_hud() -> void:
 	_on_target_lock_updated(bool(player.call("is_target_locked")))
 	_on_death_state_changed(bool(player.call("is_dead")))
 
+func _connect_lion_pressure_hud() -> void:
+	if lion_pressure_director == null:
+		return
+
+	lion_pressure_director.connect("pressure_changed", Callable(self, "_on_lion_pressure_changed"))
+	if lion_pressure_director.has_method("get_pressure_stage"):
+		_on_lion_pressure_changed(
+			int(lion_pressure_director.call("get_pressure_stage")),
+			float(lion_pressure_director.call("get_pressure_level")),
+			String(lion_pressure_director.call("get_warning_text")),
+			int(lion_pressure_director.call("get_active_lion_count"))
+		)
+
 
 func _on_health_updated(current_health: float, max_health: float) -> void:
 	health_label.text = "Health: %d / %d" % [int(current_health), int(max_health)]
@@ -61,6 +77,9 @@ func _on_target_lock_updated(enabled: bool) -> void:
 		lock_label.text = "Target Lock: ON"
 	else:
 		lock_label.text = "Target Lock: OFF"
+
+func _on_lion_pressure_changed(stage: int, pressure_level: float, warning: String, active_lions: int) -> void:
+	lion_pressure_label.text = "%s | Stage %d | Count %d | Pressure %.2f" % [warning, stage, active_lions, pressure_level]
 
 
 func _on_death_state_changed(is_dead: bool) -> void:

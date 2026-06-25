@@ -1,0 +1,35 @@
+[gd_resource type="Resource" script_class="AIBehaviorProfile" load_steps=2 format=3 uid="uid://ai_black_mountain_lion_profile"]
+
+[ext_resource type="Script" path="res://scripts/ai/ai_behavior_profile.gd" id="1_profile"]
+
+[resource]
+script = ExtResource("1_profile")
+entity_name = "Black Mountain Lion"
+initial_state = 1
+target_response = 2
+max_health = 78.0
+flee_health_ratio = 0.28
+sight_range = 34.0
+hearing_range = 13.0
+field_of_view_degrees = 360.0
+line_of_sight_mask = 6
+eye_height = 0.72
+target_aim_height = 0.45
+target_memory_duration = 2.2
+walk_speed = 2.0
+chase_speed = 4.4
+evade_speed = 6.2
+flee_speed = 7.4
+acceleration = 22.0
+path_stop_distance = 0.65
+patrol_offsets = Array[Vector3]([Vector3(0, 0, 0), Vector3(3, 0, 2), Vector3(-2, 0, 4), Vector3(-4, 0, -1)])
+idle_duration = 1.2
+investigate_duration = 2.6
+evade_duration = 1.4
+safe_distance = 10.5
+emergency_flee_distance = 2.0
+flee_duration = 2.8
+attack_range = 1.75
+attack_cooldown = 1.35
+attack_hold_time = 0.28
+attack_damage = 12.0

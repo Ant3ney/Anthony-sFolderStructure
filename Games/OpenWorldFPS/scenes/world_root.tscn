@@ -1,4 +1,4 @@
-[gd_scene load_steps=9 format=3 uid="uid://f6k2p9n8t4z7"]
+[gd_scene load_steps=11 format=3 uid="uid://f6k2p9n8t4z7"]
 
 [ext_resource type="Script" path="res://scripts/world/world_root.gd" id="1"]
 [ext_resource type="PackedScene" path="res://scenes/player.tscn" id="2"]
@@ -8,6 +8,8 @@
 [ext_resource type="PackedScene" path="res://scenes/training_target.tscn" id="6"]
 [ext_resource type="PackedScene" path="res://scenes/creatures/field_grazer.tscn" id="7"]
 [ext_resource type="PackedScene" path="res://scenes/enemies/raider_enemy.tscn" id="8"]
+[ext_resource type="Script" path="res://scripts/world/lion_pressure_director.gd" id="9"]
+[ext_resource type="PackedScene" path="res://scenes/creatures/black_mountain_lion.tscn" id="10"]
 
 [node name="WorldRoot" type="Node3D"]
 script = ExtResource("1")
@@ -19,6 +21,12 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.0, 4.0, 4.0)
 script = ExtResource("5")
 chunk_scene = ExtResource("3")
 player_path = NodePath("../Player")
+
+[node name="LionPressureDirector" type="Node" parent="."]
+script = ExtResource("9")
+chunk_manager_path = NodePath("../ChunkManager")
+player_path = NodePath("../Player")
+black_mountain_lion_scene = ExtResource("10")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = ExtResource("4")
@@ -42,7 +50,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 11.0, 1.0, 4.0)
 offset_left = 12.0
 offset_top = 12.0
 offset_right = 232.0
-offset_bottom = 128.0
+offset_bottom = 146.0
 
 [node name="HUDRows" type="VBoxContainer" parent="HUD/HUDPanel"]
 theme_override_constants/separation = 2
@@ -52,6 +60,9 @@ text = "Health: 100 / 100"
 
 [node name="AlertLabel" type="Label" parent="HUD/HUDPanel/HUDRows"]
 text = "Alert: 0"
+
+[node name="LionPressureLabel" type="Label" parent="HUD/HUDPanel/HUDRows"]
+text = "Black Mountain Lions: quiet | Stage 0 | Count 0 | Pressure 0.00"
 
 [node name="TargetLockLabel" type="Label" parent="HUD/HUDPanel/HUDRows"]
 text = "Target Lock: OFF"

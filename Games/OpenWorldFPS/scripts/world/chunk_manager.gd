@@ -14,6 +14,8 @@ class_name ChunkManager
 
 var _loaded_chunks: Dictionary = {}
 var _active_chunk: Vector2i = Vector2i.ZERO
+var _lion_pressure_stage: int = 0
+var _lion_density_scale: float = 1.0
 
 func _ready() -> void:
 	if chunk_scene == null:
@@ -78,6 +80,8 @@ func _spawn_chunk(coord: Vector2i) -> void:
 	var player_distance := _chunk_distance_to_player(coord)
 	var population_scale := _population_scale(player_distance)
 	chunk.call("initialize", coord, seed, chunk_size, obstacles_per_chunk, player_distance, population_scale)
+	if chunk.has_method("set_lion_pressure"):
+		chunk.call("set_lion_pressure", _lion_pressure_stage, _lion_density_scale)
 	add_child(chunk)
 	_loaded_chunks[_chunk_key(coord)] = chunk
 
@@ -94,3 +98,28 @@ func _population_scale(distance: int) -> float:
 
 func _chunk_key(coord: Vector2i) -> String:
 	return "%d_%d" % [coord.x, coord.y]
+
+func set_lion_pressure(stage: int, density_scale: float) -> void:
+	_lion_pressure_stage = int(clamp(stage, 0, 4))
+	_lion_density_scale = clampf(density_scale, 0.0, 5.0)
+	for chunk in _loaded_chunks.values():
+		if is_instance_valid(chunk) and chunk.has_method("set_lion_pressure"):
+			chunk.call("set_lion_pressure", _lion_pressure_stage, _lion_density_scale)
+
+func get_lion_pressure_stage() -> int:
+	return _lion_pressure_stage
+
+func get_lion_density_scale() -> float:
+	return _lion_density_scale
+
+func get_loaded_town_centers() -> Array[Vector3]:
+	var centers: Array[Vector3] = []
+	for chunk in _loaded_chunks.values():
+		if not is_instance_valid(chunk) or not chunk.has_method("get_town_centers"):
+			continue
+		var chunk_node := chunk as Node3D
+		if chunk_node == null:
+			continue
+		for local_center in chunk.call("get_town_centers"):
+			centers.append(chunk_node.to_global(local_center))
+	return centers
