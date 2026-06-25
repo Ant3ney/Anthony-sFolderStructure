@@ -61,6 +61,11 @@ func _run() -> void:
 	_expect(int(pressure_snapshot["stage"]) >= 3, "Lion pressure advances village pressure stages")
 	_expect(int(pressure_snapshot["count"]) > 0, "Lion pressure spawns migration lions over time")
 	_expect(int(pressure_snapshot["chunk_stage"]) == int(pressure_snapshot["stage"]), "Chunk villages receive lion pressure stages")
+	_expect(int(pressure_snapshot["settlement_state"]) >= 2, "Town pressure advances into Alert or Overrun")
+	_expect(float(pressure_snapshot["travel_safety"]) < 1.0, "Town pressure lowers travel safety in affected chunks")
+	_expect(int(pressure_snapshot["pressure_enemy_density"]) > 0, "Town pressure adds pressure enemy density")
+	_expect(float(pressure_snapshot["travel_safety_api"]) == float(pressure_snapshot["travel_safety"]), "ChunkManager exposes documented travel safety")
+	_expect(int(pressure_snapshot["pressure_enemy_count_api"]) == int(pressure_snapshot["pressure_enemy_density"]), "ChunkManager exposes documented pressure enemy count")
 
 	test_root.queue_free()
 	if _failures > 0:
@@ -88,6 +93,11 @@ func _pressure_director_snapshot() -> Dictionary:
 		"stage": 0,
 		"count": 0,
 		"chunk_stage": -1,
+		"settlement_state": 0,
+		"travel_safety": 1.0,
+		"pressure_enemy_density": 0,
+		"travel_safety_api": 1.0,
+		"pressure_enemy_count_api": 0,
 	}
 	var world := WORLD_SCENE.instantiate()
 	root.add_child(world)
@@ -103,6 +113,12 @@ func _pressure_director_snapshot() -> Dictionary:
 	snapshot["stage"] = int(director.call("get_pressure_stage"))
 	snapshot["count"] = int(director.call("get_active_lion_count"))
 	snapshot["chunk_stage"] = int(chunk_manager.call("get_lion_pressure_stage"))
+	var settlement_summary: Dictionary = director.call("get_settlement_summary")
+	snapshot["settlement_state"] = int(settlement_summary.get("state", 0))
+	snapshot["travel_safety"] = float(settlement_summary.get("travel_safety", 1.0))
+	snapshot["pressure_enemy_density"] = int(settlement_summary.get("pressure_enemy_density", 0))
+	snapshot["travel_safety_api"] = float(chunk_manager.call("get_travel_safety"))
+	snapshot["pressure_enemy_count_api"] = int(chunk_manager.call("get_pressure_enemy_count"))
 	world.queue_free()
 	return snapshot
 

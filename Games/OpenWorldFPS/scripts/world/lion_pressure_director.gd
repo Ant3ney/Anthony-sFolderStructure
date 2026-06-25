@@ -3,6 +3,7 @@ class_name LionPressureDirector
 
 signal pressure_changed(stage: int, pressure_level: float, warning: String, active_lions: int)
 signal migration_wave_started(destination: Vector3, spawned: int, stage: int)
+signal settlement_pressure_changed(summary: Dictionary)
 
 const PRESSURE_THRESHOLDS := [0.16, 0.40, 0.70, 1.0]
 const WARNING_TEXT := [
@@ -25,25 +26,35 @@ const WARNING_TEXT := [
 @export_range(1, 12, 1) var max_lions_per_wave: int = 7
 @export_range(1, 60, 1) var max_active_lions: int = 30
 @export_range(1.0, 5.0, 0.1) var max_pressure_level: float = 2.0
+@export_range(0.5, 20.0, 0.5) var settlement_refresh_seconds: float = 3.0
 
 var _chunk_manager: Node
 var _player: Node3D
 var _pressure_level: float = 0.0
 var _pressure_stage: int = 0
 var _wave_timer: float = 0.0
+var _settlement_refresh_timer: float = 0.0
 var _active_lions: Array[Node] = []
+var _settlement_summary: Dictionary = {}
 var _rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
 	_resolve_references()
 	_seed_rng()
 	_wave_timer = maxf(pressure_tick_seconds - first_wave_delay, 0.0)
+	_settlement_summary = _default_settlement_summary()
 	_apply_pressure_to_chunks()
 	_emit_pressure_changed()
 
 func _physics_process(delta: float) -> void:
 	if pressure_tick_seconds <= 0.0:
 		return
+
+	_settlement_refresh_timer += delta
+	if _settlement_refresh_timer >= settlement_refresh_seconds:
+		_settlement_refresh_timer = fmod(_settlement_refresh_timer, settlement_refresh_seconds)
+		_apply_pressure_to_chunks()
+		_emit_settlement_pressure_changed()
 
 	_wave_timer += delta
 	if _wave_timer < pressure_tick_seconds:
@@ -59,6 +70,7 @@ func advance_pressure(amount: float, spawn_wave: bool = true) -> void:
 	_set_pressure(_pressure_level + amount)
 	if spawn_wave:
 		_spawn_migration_wave()
+		_apply_pressure_to_chunks()
 	_emit_pressure_changed()
 
 func get_pressure_level() -> float:
@@ -73,6 +85,18 @@ func get_active_lion_count() -> int:
 
 func get_warning_text() -> String:
 	return WARNING_TEXT[_pressure_stage]
+
+func get_settlement_summary() -> Dictionary:
+	return _settlement_summary.duplicate(true)
+
+func get_settlement_state_name() -> String:
+	return String(_settlement_summary.get("state_name", "Stable"))
+
+func get_settlement_warning_text() -> String:
+	return String(_settlement_summary.get("warning", "Stable towns: roads clear"))
+
+func get_settlement_travel_safety() -> float:
+	return float(_settlement_summary.get("travel_safety", 1.0))
 
 func _resolve_references() -> void:
 	if chunk_manager_path != NodePath() and has_node(chunk_manager_path):
@@ -107,7 +131,8 @@ func _apply_pressure_to_chunks() -> void:
 	if _chunk_manager == null:
 		_resolve_references()
 	if _chunk_manager != null and _chunk_manager.has_method("set_lion_pressure"):
-		_chunk_manager.call("set_lion_pressure", _pressure_stage, _density_scale())
+		_chunk_manager.call("set_lion_pressure", _pressure_stage, _density_scale(), _collect_active_lion_positions())
+	_update_settlement_summary()
 
 func _spawn_migration_wave() -> void:
 	_cleanup_active_lions()
@@ -177,3 +202,37 @@ func _cleanup_active_lions() -> void:
 
 func _emit_pressure_changed() -> void:
 	pressure_changed.emit(_pressure_stage, _pressure_level, get_warning_text(), get_active_lion_count())
+	_emit_settlement_pressure_changed()
+
+func _emit_settlement_pressure_changed() -> void:
+	settlement_pressure_changed.emit(get_settlement_summary())
+
+func _collect_active_lion_positions() -> Array[Vector3]:
+	_cleanup_active_lions()
+	var positions: Array[Vector3] = []
+	for lion in _active_lions:
+		var lion_node := lion as Node3D
+		if lion_node != null and is_instance_valid(lion_node):
+			positions.append(lion_node.global_position)
+	return positions
+
+func _update_settlement_summary() -> void:
+	if _chunk_manager != null and _chunk_manager.has_method("get_town_pressure_summary"):
+		_settlement_summary = _chunk_manager.call("get_town_pressure_summary")
+	else:
+		_settlement_summary = _default_settlement_summary()
+
+func _default_settlement_summary() -> Dictionary:
+	return {
+		"state": 0,
+		"state_name": "Stable",
+		"warning": "Stable towns: roads clear",
+		"town_count": 0,
+		"affected_chunks": 0,
+		"travel_safety": 1.0,
+		"pressure_enemy_density": 0,
+		"pressure_score": 0.0,
+		"nearby_lions": 0,
+		"hostile_population": 0,
+		"state_counts": [0, 0, 0, 0],
+	}
