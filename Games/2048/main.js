@@ -32,6 +32,8 @@
   const pauseButton = document.getElementById("pauseButton");
   const contrastToggle = document.getElementById("contrastToggle");
   const directionButtons = document.querySelectorAll("[data-dir]");
+  const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const scoreCard = scoreValue.closest("p");
 
   const DEFAULT_INPUT_PROFILE = {
     transitionLockMs: 210,
@@ -69,6 +71,7 @@
 
   const boardCellsByIndex = [];
   const defaultStatusMessage = "Use directional controls to move tiles.";
+  let reducedMotionEnabled = reducedMotionQuery.matches;
   const textColorByValue = {
     2: "var(--tile-text-dark)",
     4: "var(--tile-text-dark)",
@@ -368,6 +371,77 @@
     return Math.max(1, Math.ceil(parsed + 25));
   }
 
+  function syncReducedMotion() {
+    reducedMotionEnabled = reducedMotionQuery.matches;
+  }
+
+  function buildIndexCoords(index) {
+    return {
+      row: Math.floor(index / BOARD_SIZE),
+      col: index % BOARD_SIZE,
+    };
+  }
+
+  function getMotionStepPx() {
+    const styles = getComputedStyle(document.documentElement);
+    const tileSize = parseFloat(styles.getPropertyValue("--tile-size"));
+    const gutter = parseFloat(styles.getPropertyValue("--board-gutter"));
+    if (!Number.isFinite(tileSize) || !Number.isFinite(gutter)) {
+      return null;
+    }
+    return tileSize + gutter;
+  }
+
+  function spawnMergeSpark(tileElement, value) {
+    if (reducedMotionEnabled) {
+      return;
+    }
+
+    const sparks = value >= 1024 ? 6 : 4;
+    for (let i = 0; i < sparks; i += 1) {
+      const angle = (Math.PI * 2 * i) / sparks + Math.random() * 0.45;
+      const magnitude = 12 + Math.random() * 14;
+      const spark = document.createElement("span");
+      spark.className = "tile-spark";
+      spark.style.setProperty("--spark-x", `${(Math.cos(angle) * magnitude).toFixed(2)}px`);
+      spark.style.setProperty("--spark-y", `${(Math.sin(angle) * magnitude).toFixed(2)}px`);
+      spark.style.animationDelay = `${(i * 18)}ms`;
+      tileElement.appendChild(spark);
+      spark.addEventListener("animationend", () => {
+        if (spark.parentNode === tileElement) {
+          tileElement.removeChild(spark);
+        }
+      }, { once: true });
+    }
+  }
+
+  function spawnScorePop(scoreDelta) {
+    if (reducedMotionEnabled || scoreDelta <= 0 || !scoreCard) {
+      return;
+    }
+
+    const pop = document.createElement("span");
+    pop.className = "score-pop";
+    pop.textContent = `+${scoreDelta}`;
+    scoreCard.appendChild(pop);
+    pop.addEventListener("animationend", () => {
+      if (pop.parentNode === scoreCard) {
+        scoreCard.removeChild(pop);
+      }
+    }, { once: true });
+  }
+
+  function bindMotionPreferenceObserver() {
+    syncReducedMotion();
+    if (typeof reducedMotionQuery.addEventListener === "function") {
+      reducedMotionQuery.addEventListener("change", syncReducedMotion);
+      return;
+    }
+    if (typeof reducedMotionQuery.addListener === "function") {
+      reducedMotionQuery.addListener(syncReducedMotion);
+    }
+  }
+
   function isPointerAllowed(pointerType) {
     if (pointerType === "mouse") {
       return inputProfile.swipe.allowMouse;
@@ -560,25 +634,41 @@
 
   function getVisualStateMetadata(nextState) {
     const merged = new Set();
+    const moveByDestination = new Map();
     const newTileIndex = nextState.lastMove && nextState.lastMove.spawned
       ? nextState.lastMove.spawned.index
       : -1;
+    let mergedCount = 0;
+
     if (nextState.lastMove && Array.isArray(nextState.lastMove.movedTiles)) {
       for (let i = 0; i < nextState.lastMove.movedTiles.length; i += 1) {
         const info = nextState.lastMove.movedTiles[i];
-        if (info && info.merged && Number.isInteger(info.to)) {
+        if (!info || !Number.isInteger(info.to)) {
+          continue;
+        }
+        moveByDestination.set(info.to, info);
+        if (info.merged) {
           merged.add(info.to);
+          mergedCount += 1;
         }
       }
     }
+
     return {
       merged,
+      moveByDestination,
       newTileIndex,
+      mergedCount,
     };
   }
 
-  function render(nextState) {
-    const { merged, newTileIndex } = getVisualStateMetadata(nextState);
+  function render(nextState, options = {}) {
+    const doAnimate = options.animateMove === true && !reducedMotionEnabled;
+    const { merged, moveByDestination, newTileIndex, mergedCount } = getVisualStateMetadata(nextState);
+    const stepPx = doAnimate ? getMotionStepPx() : null;
+    const movingElements = [];
+    const animateableMerged = [];
+    gameBoard.classList.remove("is-merge-pulse");
 
     state = nextState;
     if (state.score > bestScore) {
@@ -588,10 +678,67 @@
 
     nextState.board.forEach((value, index) => {
       if (value > 0) {
+        const tileMeta = moveByDestination.get(index);
         const tile = createTile(index, value, newTileIndex === index, merged.has(index));
+        if (
+          doAnimate
+          && tileMeta
+          && Array.isArray(tileMeta.from)
+          && tileMeta.from.length
+          && stepPx
+        ) {
+          const source = buildIndexCoords(tileMeta.from[0]);
+          const destination = buildIndexCoords(index);
+          const deltaCol = (source.col - destination.col) * stepPx;
+          const deltaRow = (source.row - destination.row) * stepPx;
+
+          if (deltaCol || deltaRow) {
+            tile.classList.add("is-moving");
+            tile.style.setProperty("--motion-dx", `${deltaCol}px`);
+            tile.style.setProperty("--motion-dy", `${deltaRow}px`);
+            movingElements.push(tile);
+          }
+        }
+
         boardTiles.appendChild(tile);
+        if (tile.classList.contains("is-merged")) {
+          animateableMerged.push(tile);
+        }
       }
     });
+
+    if (doAnimate && movingElements.length > 0) {
+      requestAnimationFrame(() => {
+        movingElements.forEach((tile) => {
+          tile.style.removeProperty("--motion-dx");
+          tile.style.removeProperty("--motion-dy");
+          tile.classList.remove("is-moving");
+        });
+      });
+      if (mergedCount > 0) {
+        gameBoard.classList.add("is-merge-pulse");
+        requestAnimationFrame(() => {
+          gameBoard.classList.remove("is-merge-pulse");
+        });
+      }
+      requestAnimationFrame(() => {
+        if (nextState.lastMove && nextState.lastMove.scoreDelta > 0) {
+          spawnScorePop(nextState.lastMove.scoreDelta);
+        }
+        if (mergedCount > 0 && nextState.lastMove && Array.isArray(nextState.lastMove.movedTiles)) {
+          animateableMerged.forEach((tile) => {
+            const tileValue = Number(tile.getAttribute("data-value"));
+            requestAnimationFrame(() => {
+              spawnMergeSpark(tile, tileValue);
+            });
+          });
+        }
+      });
+    } else {
+      if (nextState.lastMove && nextState.lastMove.scoreDelta > 0) {
+        requestAnimationFrame(() => spawnScorePop(nextState.lastMove.scoreDelta));
+      }
+    }
 
     if (isPaused) {
       gameBoard.classList.add("is-paused");
@@ -651,7 +798,7 @@
     }
 
     const result = executeMove(state, direction);
-    render(result.state);
+    render(result.state, { animateMove: result.state.lastMove && result.state.lastMove.moved });
     const moved = result.state.lastMove && result.state.lastMove.moved;
     beginInputLock(moved ? transitionLockMs : inputProfile.noMoveLockMs);
     if (result.state.over) {
@@ -858,6 +1005,7 @@
     hydrateFromStorage();
     buildCells();
     setHighContrast(readHighContrastPreference());
+    bindMotionPreferenceObserver();
     bindInputs();
     render(state);
     if (isPaused || state.over) {
