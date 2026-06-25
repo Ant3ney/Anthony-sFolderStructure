@@ -1,0 +1,51 @@
+; OpenWorldFPS Godot project configuration.
+
+[application]
+config/name="OpenWorldFPS"
+config/features=PackedStringArray("4.2")
+run/main_scene="res://scenes/world_root.tscn"
+
+[rendering]
+environment/defaults/default_environment="res://default_env.tres"
+
+[physics]
+3d/default_gravity=9.8
+3d/default_gravity_vector=Vector3(0, -1, 0)
+
+[input]
+move_forward={
+"deadzone": 0.0,
+"events": [ Object(InputEventKey, "physical_keycode":87, "unicode":87, "pressed":false, "echo":false, "device":-1) ]
+}
+move_backward={
+"deadzone": 0.0,
+"events": [ Object(InputEventKey, "physical_keycode":83, "unicode":83, "pressed":false, "echo":false, "device":-1) ]
+}
+move_left={
+"deadzone": 0.0,
+"events": [ Object(InputEventKey, "physical_keycode":65, "unicode":65, "pressed":false, "echo":false, "device":-1) ]
+}
+move_right={
+"deadzone": 0.0,
+"events": [ Object(InputEventKey, "physical_keycode":68, "unicode":68, "pressed":false, "echo":false, "device":-1) ]
+}
+jump={
+"deadzone": 0.0,
+"events": [ Object(InputEventKey, "physical_keycode":32, "unicode":32, "pressed":false, "echo":false, "device":-1) ]
+}
+run={
+"deadzone": 0.0,
+"events": [ Object(InputEventKey, "physical_keycode":16777237, "unicode":0, "pressed":false, "echo":false, "device":-1) ]
+}
+toggle_mouse={
+"deadzone": 0.0,
+"events": [ Object(InputEventKey, "physical_keycode":16777217, "unicode":0, "pressed":false, "echo":false, "device":-1) ]
+}
+
+[layer_names]
+3d_physics/layer_1="World"
+3d_physics/layer_2="Player"
+3d_physics/layer_3="Obstacles"
+3d_render/layer_1="World"
+3d_render/layer_2="Player"
+3d_render/layer_3="Obstacles"
