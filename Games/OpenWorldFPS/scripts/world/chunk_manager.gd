@@ -1,6 +1,8 @@
 extends Node3D
 class_name ChunkManager
 
+signal town_pressure_changed(state: int, state_name: String, alert: String, travel_safety: float, pressure_enemies: int)
+
 @export var chunk_scene: PackedScene
 @export var seed: int = 20260625
 @export var chunk_size: float = 48.0
@@ -10,12 +12,24 @@ class_name ChunkManager
 @export_range(1, 20) var chunk_distance_falloff: int = 6
 @export_node_path("CharacterBody3D") var player_path: NodePath
 
+const TOWN_PRESSURE_STATE_NAMES := ["Stable", "Uneasy", "Alert", "Overrun"]
+const TOWN_ALERT_TEXT := [
+	"Towns stable: roads open",
+	"Towns uneasy: lookouts posted",
+	"Town alert: barricades raised",
+	"Town overrun: avoid affected chunks"
+]
+
 @onready var player: CharacterBody3D
 
 var _loaded_chunks: Dictionary = {}
 var _active_chunk: Vector2i = Vector2i.ZERO
 var _lion_pressure_stage: int = 0
 var _lion_density_scale: float = 1.0
+var _town_pressure_state: int = 0
+var _town_travel_safety: float = 1.0
+var _town_pressure_enemy_count: int = 0
+var _town_count: int = 0
 
 func _ready() -> void:
 	if chunk_scene == null:
@@ -62,6 +76,8 @@ func _refresh_chunks() -> void:
 				stale.queue_free()
 			_loaded_chunks.erase(key)
 
+	_update_town_pressure_summary()
+
 func _spawn_chunk(coord: Vector2i) -> void:
 	if chunk_scene == null:
 		push_error("ChunkManager is missing chunk scene.")
@@ -105,6 +121,7 @@ func set_lion_pressure(stage: int, density_scale: float) -> void:
 	for chunk in _loaded_chunks.values():
 		if is_instance_valid(chunk) and chunk.has_method("set_lion_pressure"):
 			chunk.call("set_lion_pressure", _lion_pressure_stage, _lion_density_scale)
+	_update_town_pressure_summary()
 
 func get_lion_pressure_stage() -> int:
 	return _lion_pressure_stage
@@ -123,3 +140,94 @@ func get_loaded_town_centers() -> Array[Vector3]:
 		for local_center in chunk.call("get_town_centers"):
 			centers.append(chunk_node.to_global(local_center))
 	return centers
+
+func get_loaded_town_pressure_states() -> Array[int]:
+	var states: Array[int] = []
+	for chunk in _loaded_chunks.values():
+		if not is_instance_valid(chunk) or not chunk.has_method("get_town_pressure_states"):
+			continue
+		for state in chunk.call("get_town_pressure_states"):
+			states.append(int(state))
+	return states
+
+func get_town_pressure_state() -> int:
+	return _town_pressure_state
+
+func get_town_pressure_state_name(state: int = -1) -> String:
+	var state_index := _town_pressure_state if state < 0 else state
+	state_index = int(clamp(state_index, 0, TOWN_PRESSURE_STATE_NAMES.size() - 1))
+	return TOWN_PRESSURE_STATE_NAMES[state_index]
+
+func get_town_alert_text() -> String:
+	return TOWN_ALERT_TEXT[_town_pressure_state]
+
+func get_travel_safety() -> float:
+	return _town_travel_safety
+
+func get_travel_safety_for_position(position: Vector3) -> float:
+	var key := _chunk_key(_world_chunk_for_position(position))
+	if _loaded_chunks.has(key):
+		var chunk := _loaded_chunks[key] as Node
+		if is_instance_valid(chunk) and chunk.has_method("get_average_travel_safety"):
+			return float(chunk.call("get_average_travel_safety"))
+	return _town_travel_safety
+
+func get_pressure_enemy_count() -> int:
+	return _town_pressure_enemy_count
+
+func get_town_count() -> int:
+	return _town_count
+
+func _update_town_pressure_summary() -> void:
+	var next_state := 0
+	var next_town_count := 0
+	var next_pressure_enemies := 0
+	var safety_total := 0.0
+
+	for chunk in _loaded_chunks.values():
+		if not is_instance_valid(chunk):
+			continue
+
+		var chunk_town_count := 0
+		if chunk.has_method("get_town_pressure_count"):
+			chunk_town_count = int(chunk.call("get_town_pressure_count"))
+		elif chunk.has_method("get_town_centers"):
+			chunk_town_count = int(chunk.call("get_town_centers").size())
+
+		if chunk_town_count <= 0:
+			continue
+
+		if chunk.has_method("get_max_town_pressure_state"):
+			next_state = max(next_state, int(chunk.call("get_max_town_pressure_state")))
+
+		var chunk_safety := 1.0
+		if chunk.has_method("get_average_travel_safety"):
+			chunk_safety = float(chunk.call("get_average_travel_safety"))
+		safety_total += chunk_safety * float(chunk_town_count)
+		next_town_count += chunk_town_count
+
+		if chunk.has_method("get_pressure_enemy_count"):
+			next_pressure_enemies += int(chunk.call("get_pressure_enemy_count"))
+
+	var next_safety := 1.0
+	if next_town_count > 0:
+		next_safety = clampf(safety_total / float(next_town_count), 0.0, 1.0)
+
+	var changed := next_state != _town_pressure_state \
+		or absf(next_safety - _town_travel_safety) > 0.001 \
+		or next_pressure_enemies != _town_pressure_enemy_count \
+		or next_town_count != _town_count
+
+	_town_pressure_state = next_state
+	_town_travel_safety = next_safety
+	_town_pressure_enemy_count = next_pressure_enemies
+	_town_count = next_town_count
+
+	if changed:
+		town_pressure_changed.emit(
+			_town_pressure_state,
+			get_town_pressure_state_name(),
+			get_town_alert_text(),
+			_town_travel_safety,
+			_town_pressure_enemy_count
+		)

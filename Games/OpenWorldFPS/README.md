@@ -14,6 +14,7 @@ The world bootstraps a chunked terrain around the player using a deterministic s
 - CharacterBody3D player with camera and grounded movement.
 - Chunk manager with configurable radius and seed-driven chunk generation.
 - Deterministic biome-aware procedural world population with placeholder towns, creature clusters, and hostile units.
+- Runtime town pressure states (`Stable`, `Uneasy`, `Alert`, `Overrun`) driven by lion pressure and enemy population.
 - Explicit 3D physics layer names in `project.godot`.
 
 ## Spawn and biome controls
@@ -23,3 +24,12 @@ The world bootstraps a chunked terrain around the player using a deterministic s
   - `far_chunk_density` controls density at the edge of configured load distance.
   - `chunk_distance_falloff` controls how quickly the density curve decays.
 - Config values are in `world_root.gd` and can be tuned in-editor (`far_chunk_density`, `chunk_distance_falloff`).
+
+## Town pressure loop
+- `LionPressureDirector` advances black mountain lion pressure and pushes stage/density updates into `ChunkManager`.
+- `Chunk` maps lion pressure plus local enemy population into town states:
+  - `Stable`: routine NPC placeholders and full travel safety.
+  - `Uneasy`: warning beacons and lookout NPC placeholders.
+  - `Alert`: barricades, defender NPC placeholders, lower travel safety, and extra pressure enemy placeholders.
+  - `Overrun`: broken defenses, evacuation NPC placeholders, heavy warning artifacts, and the lowest travel safety.
+- `ChunkManager` exposes aggregate town state, pressure enemy count, and travel safety for the HUD and future gameplay systems.

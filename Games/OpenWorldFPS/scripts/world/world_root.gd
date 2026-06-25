@@ -15,6 +15,7 @@ const DEAD_TEXT := "DEAD - Press R to reload and continue"
 @onready var health_label: Label = $HUD/HUDPanel/HUDRows/HealthLabel
 @onready var alert_label: Label = $HUD/HUDPanel/HUDRows/AlertLabel
 @onready var lion_pressure_label: Label = $HUD/HUDPanel/HUDRows/LionPressureLabel
+@onready var town_pressure_label: Label = $HUD/HUDPanel/HUDRows/TownPressureLabel
 @onready var lock_label: Label = $HUD/HUDPanel/HUDRows/TargetLockLabel
 @onready var status_label: Label = $HUD/HUDPanel/HUDRows/StatusLabel
 
@@ -34,6 +35,7 @@ func _ready() -> void:
 		return
 	_connect_player_hud()
 	_connect_lion_pressure_hud()
+	_connect_town_pressure_hud()
 
 
 func _connect_player_hud() -> void:
@@ -64,6 +66,21 @@ func _connect_lion_pressure_hud() -> void:
 		)
 
 
+func _connect_town_pressure_hud() -> void:
+	if chunk_manager == null or not chunk_manager.has_signal("town_pressure_changed"):
+		return
+
+	chunk_manager.connect("town_pressure_changed", Callable(self, "_on_town_pressure_changed"))
+	if chunk_manager.has_method("get_town_pressure_state"):
+		_on_town_pressure_changed(
+			int(chunk_manager.call("get_town_pressure_state")),
+			String(chunk_manager.call("get_town_pressure_state_name")),
+			String(chunk_manager.call("get_town_alert_text")),
+			float(chunk_manager.call("get_travel_safety")),
+			int(chunk_manager.call("get_pressure_enemy_count"))
+		)
+
+
 func _on_health_updated(current_health: float, max_health: float) -> void:
 	health_label.text = "Health: %d / %d" % [int(current_health), int(max_health)]
 
@@ -80,6 +97,10 @@ func _on_target_lock_updated(enabled: bool) -> void:
 
 func _on_lion_pressure_changed(stage: int, pressure_level: float, warning: String, active_lions: int) -> void:
 	lion_pressure_label.text = "%s | Stage %d | Count %d | Pressure %.2f" % [warning, stage, active_lions, pressure_level]
+
+
+func _on_town_pressure_changed(_state: int, state_name: String, alert: String, travel_safety: float, pressure_enemies: int) -> void:
+	town_pressure_label.text = "%s | %s | Safety %.0f%% | Enemies %d" % [alert, state_name, travel_safety * 100.0, pressure_enemies]
 
 
 func _on_death_state_changed(is_dead: bool) -> void:

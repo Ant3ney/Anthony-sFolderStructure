@@ -2,6 +2,7 @@ extends SceneTree
 
 const PLAYER_SCENE := preload("res://scenes/player.tscn")
 const WORLD_SCENE := preload("res://scenes/world_root.tscn")
+const CHUNK_SCENE := preload("res://scenes/chunk.tscn")
 const FIELD_GRAZER_SCENE := preload("res://scenes/creatures/field_grazer.tscn")
 const RAIDER_ENEMY_SCENE := preload("res://scenes/enemies/raider_enemy.tscn")
 const BLACK_MOUNTAIN_LION_SCENE := preload("res://scenes/creatures/black_mountain_lion.tscn")
@@ -61,6 +62,16 @@ func _run() -> void:
 	_expect(int(pressure_snapshot["stage"]) >= 3, "Lion pressure advances village pressure stages")
 	_expect(int(pressure_snapshot["count"]) > 0, "Lion pressure spawns migration lions over time")
 	_expect(int(pressure_snapshot["chunk_stage"]) == int(pressure_snapshot["stage"]), "Chunk villages receive lion pressure stages")
+	_expect(int(pressure_snapshot["town_state"]) >= 2, "Loaded towns enter alert or overrun pressure states")
+	_expect(float(pressure_snapshot["safety"]) < 0.8, "Loaded town pressure reduces travel safety")
+	_expect(int(pressure_snapshot["pressure_enemies"]) > 0, "Alerted towns add pressure enemy density")
+	_expect(int(pressure_snapshot["defenses"]) > 0, "Alerted towns raise temporary defenses")
+
+	var enemy_pressure_snapshot := await _enemy_population_pressure_snapshot()
+	_expect(int(enemy_pressure_snapshot["state"]) >= 2, "Enemy population pressure can put a town on alert")
+	_expect(float(enemy_pressure_snapshot["safety"]) < 0.75, "Enemy population pressure lowers affected chunk travel safety")
+	_expect(int(enemy_pressure_snapshot["pressure_enemies"]) > 0, "Enemy population pressure adds pressure enemy placeholders")
+	_expect(int(enemy_pressure_snapshot["town_npcs"]) > 0, "Town pressure states assign NPC behavior placeholders")
 
 	test_root.queue_free()
 	if _failures > 0:
@@ -88,6 +99,10 @@ func _pressure_director_snapshot() -> Dictionary:
 		"stage": 0,
 		"count": 0,
 		"chunk_stage": -1,
+		"town_state": 0,
+		"safety": 1.0,
+		"pressure_enemies": 0,
+		"defenses": 0,
 	}
 	var world := WORLD_SCENE.instantiate()
 	root.add_child(world)
@@ -103,8 +118,42 @@ func _pressure_director_snapshot() -> Dictionary:
 	snapshot["stage"] = int(director.call("get_pressure_stage"))
 	snapshot["count"] = int(director.call("get_active_lion_count"))
 	snapshot["chunk_stage"] = int(chunk_manager.call("get_lion_pressure_stage"))
+	snapshot["town_state"] = int(chunk_manager.call("get_town_pressure_state"))
+	snapshot["safety"] = float(chunk_manager.call("get_travel_safety"))
+	snapshot["pressure_enemies"] = int(chunk_manager.call("get_pressure_enemy_count"))
+	snapshot["defenses"] = _count_descendants_in_group(world, "town_defenses")
 	world.queue_free()
 	return snapshot
+
+func _enemy_population_pressure_snapshot() -> Dictionary:
+	var snapshot := {
+		"state": 0,
+		"safety": 1.0,
+		"pressure_enemies": 0,
+		"town_npcs": 0,
+	}
+	var chunk := CHUNK_SCENE.instantiate()
+	root.add_child(chunk)
+	chunk.call("initialize", Vector2i.ZERO, 20260625, 48.0, 12, 0, 1.0)
+	chunk.call("set_lion_pressure", 0, 1.0)
+	chunk.call("set_enemy_population_pressure", 7)
+	await process_frame
+	await _step_physics(1)
+
+	snapshot["state"] = int(chunk.call("get_max_town_pressure_state"))
+	snapshot["safety"] = float(chunk.call("get_average_travel_safety"))
+	snapshot["pressure_enemies"] = int(chunk.call("get_pressure_enemy_count"))
+	snapshot["town_npcs"] = _count_descendants_in_group(chunk, "town_npcs")
+	chunk.queue_free()
+	return snapshot
+
+func _count_descendants_in_group(node: Node, group_name: String) -> int:
+	var count := 0
+	for child in node.get_children():
+		if child.is_in_group(group_name):
+			count += 1
+		count += _count_descendants_in_group(child, group_name)
+	return count
 
 func _expect(condition: bool, message: String) -> void:
 	if condition:
