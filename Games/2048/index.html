@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no"
+    />
+    <title>2048 — Responsive Board Shell</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="page-shell">
+      <header class="hero">
+        <h1>2048</h1>
+        <p>Play with directional input. Resize the browser to watch the board scale fluidly.</p>
+      </header>
+
+      <section class="workspace" aria-label="2048 gameplay">
+        <div class="board-panel">
+          <div class="status-row">
+            <p class="status-chip" id="statusText" role="status" aria-live="polite">
+              Ready — focus the board and press an arrow key.
+            </p>
+            <button id="contrastToggle" type="button" class="contrast-btn" aria-pressed="false">
+              High contrast: Off
+            </button>
+          </div>
+
+          <section
+            id="gameBoard"
+            class="game-board"
+            role="grid"
+            aria-label="2048 board"
+            aria-rowcount="4"
+            aria-colcount="4"
+            tabindex="0"
+          >
+            <div class="board-grid" id="boardCells" aria-hidden="true"></div>
+            <div class="board-tiles" id="boardTiles" aria-hidden="true"></div>
+          </section>
+        </div>
+
+        <aside class="stats-panel" aria-label="Game information and controls">
+          <div class="stat-row">
+            <h2 class="sr-only">Game stats</h2>
+            <p>
+              <span>Score</span>
+              <strong id="scoreValue">0</strong>
+            </p>
+            <p>
+              <span>Moves</span>
+              <strong id="moveValue">0</strong>
+            </p>
+          </div>
+          <div class="button-stack">
+            <button id="undoButton" type="button" class="action-btn">Undo</button>
+            <button id="newGameButton" type="button" class="action-btn">New Game</button>
+          </div>
+
+          <p class="sr-only" aria-live="polite" id="ariaStatus">
+            Game status.
+          </p>
+
+          <div class="control-grid" aria-label="Directional controls">
+            <button type="button" class="dir-btn" data-dir="up" aria-label="Move up">↑</button>
+            <button type="button" class="dir-btn" data-dir="left" aria-label="Move left">←</button>
+            <button type="button" class="dir-btn" data-dir="down" aria-label="Move down">↓</button>
+            <button type="button" class="dir-btn" data-dir="right" aria-label="Move right">→</button>
+          </div>
+
+          <small class="caption">
+            Keyboard focus starts on the board. Use the board or touch controls above.
+          </small>
+        </aside>
+      </section>
+    </main>
+
+    <script src="./engine.js"></script>
+    <script src="./main.js"></script>
+  </body>
+</html>

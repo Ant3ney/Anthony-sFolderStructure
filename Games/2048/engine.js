@@ -625,7 +625,7 @@ function deserializeGameState(serialized) {
   });
 }
 
-module.exports = {
+const gameApi = {
   BOARD_SIZE,
   BOARD_CELLS,
   WIN_TILE,
@@ -647,3 +647,11 @@ module.exports = {
   deserialize: deserializeGameState,
   deserializeGameState,
 };
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = gameApi;
+}
+
+if (typeof globalThis !== "undefined") {
+  globalThis.Game2048 = gameApi;
+}
