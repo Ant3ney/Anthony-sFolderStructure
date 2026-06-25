@@ -1,0 +1,29 @@
+[gd_resource type="Resource" script_class="AIBehaviorProfile" load_steps=2 format=3 uid="uid://ckfb37t48l2va"]
+
+[ext_resource type="Script" path="res://scripts/ai/ai_behavior_profile.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+display_name = "Raider Enemy"
+initial_state = "patrol"
+target_response = "chase"
+sight_range = 26.0
+field_of_view_degrees = 180.0
+hearing_range = 10.0
+line_of_sight_mask = 7
+move_speed = 2.4
+chase_speed = 5.4
+flee_speed = 6.0
+acceleration = 24.0
+patrol_points = PackedVector3Array(0, 0, 0, -5, 0, 1, -2, 0, -4, 3, 0, -3)
+patrol_wait_time = 0.8
+idle_duration_min = 0.4
+idle_duration_max = 1.0
+investigation_duration = 5.0
+lost_target_memory = 2.0
+attack_range = 2.2
+attack_cooldown = 1.3
+attack_hold_time = 0.25
+damage = 12.0
+flee_health_fraction = 0.15
+safe_distance = 16.0

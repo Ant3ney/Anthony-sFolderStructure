@@ -9,6 +9,7 @@ class_name Chunk
 const WORLD_LAYER: int = 1
 const OBSTACLE_LAYER: int = 4
 const PLAYER_LAYER: int = 2
+const AI_LAYER: int = 8
 
 func initialize(coord: Vector2i, seed: int, chunk_scale: float, obstacle_total: int) -> void:
 	chunk_coord = coord
@@ -43,7 +44,7 @@ func _add_ground() -> void:
 	var body := StaticBody3D.new()
 	body.name = "Ground"
 	body.collision_layer = WORLD_LAYER
-	body.collision_mask = WORLD_LAYER
+	body.collision_mask = WORLD_LAYER | PLAYER_LAYER | AI_LAYER
 
 	var half_size := chunk_size * 0.5
 	var shape := BoxShape3D.new()
@@ -82,7 +83,7 @@ func _add_obstacles(rng: RandomNumberGenerator) -> void:
 func _add_box_obstacle(width: float, height: float, depth: float, position: Vector3) -> void:
 	var body := StaticBody3D.new()
 	body.collision_layer = OBSTACLE_LAYER
-	body.collision_mask = WORLD_LAYER | PLAYER_LAYER
+	body.collision_mask = WORLD_LAYER | PLAYER_LAYER | AI_LAYER
 
 	var shape := BoxShape3D.new()
 	shape.size = Vector3(width, height, depth)

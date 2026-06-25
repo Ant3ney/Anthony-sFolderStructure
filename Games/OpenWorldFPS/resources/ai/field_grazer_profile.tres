@@ -1,0 +1,28 @@
+[gd_resource type="Resource" script_class="AIBehaviorProfile" load_steps=2 format=3 uid="uid://b3f0cbrk8s1eg"]
+
+[ext_resource type="Script" path="res://scripts/ai/ai_behavior_profile.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+display_name = "Field Grazer"
+initial_state = "patrol"
+target_response = "evade"
+sight_range = 16.0
+field_of_view_degrees = 180.0
+hearing_range = 7.0
+line_of_sight_mask = 7
+move_speed = 2.0
+evade_speed = 5.0
+flee_speed = 6.5
+acceleration = 20.0
+patrol_points = PackedVector3Array(0, 0, 0, 4, 0, 2, 1, 0, 6, -3, 0, 4)
+patrol_wait_time = 1.0
+idle_duration_min = 0.6
+idle_duration_max = 1.4
+investigation_duration = 3.0
+evade_duration = 1.2
+flee_duration = 3.0
+safe_distance = 13.0
+flee_health_fraction = 0.35
+evade_distance = 9.0
+emergency_flee_distance = 2.8

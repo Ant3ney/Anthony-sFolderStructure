@@ -12,8 +12,24 @@ class_name ChunkManager
 
 var _loaded_chunks: Dictionary = {}
 var _active_chunk: Vector2i = Vector2i.ZERO
+var _initialized := false
 
 func _ready() -> void:
+	call_deferred("_initialize_streaming")
+
+func _physics_process(_delta: float) -> void:
+	if not _initialized:
+		return
+	if player == null:
+		return
+	var current_chunk: Vector2i = _world_chunk_for_position(player.global_position)
+	if current_chunk == _active_chunk:
+		return
+
+	_active_chunk = current_chunk
+	_refresh_chunks()
+
+func _initialize_streaming() -> void:
 	if chunk_scene == null:
 		chunk_scene = load("res://scenes/chunk.tscn")
 	if player_path != NodePath() and has_node(player_path):
@@ -24,16 +40,7 @@ func _ready() -> void:
 
 	_active_chunk = _world_chunk_for_position(player.global_position)
 	_refresh_chunks()
-
-func _physics_process(_delta: float) -> void:
-	if player == null:
-		return
-	var current_chunk: Vector2i = _world_chunk_for_position(player.global_position)
-	if current_chunk == _active_chunk:
-		return
-
-	_active_chunk = current_chunk
-	_refresh_chunks()
+	_initialized = true
 
 func _world_chunk_for_position(position: Vector3) -> Vector2i:
 	return Vector2i(floori(position.x / chunk_size), floori(position.z / chunk_size))

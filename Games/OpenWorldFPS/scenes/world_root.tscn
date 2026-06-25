@@ -1,21 +1,29 @@
-[gd_scene load_steps=6 format=3 uid="uid://f6k2p9n8t4z7"]
+[gd_scene load_steps=8 format=3 uid="uid://f6k2p9n8t4z7"]
 
 [ext_resource type="Script" path="res://scripts/world/world_root.gd" id="1"]
 [ext_resource type="PackedScene" path="res://scenes/player.tscn" id="2"]
 [ext_resource type="PackedScene" path="res://scenes/chunk.tscn" id="3"]
 [ext_resource type="Environment" path="res://default_env.tres" id="4"]
 [ext_resource type="Script" path="res://scripts/world/chunk_manager.gd" id="5"]
+[ext_resource type="PackedScene" path="res://scenes/creatures/field_grazer.tscn" id="6"]
+[ext_resource type="PackedScene" path="res://scenes/enemies/raider_enemy.tscn" id="7"]
 
 [node name="WorldRoot" type="Node3D"]
 script = ExtResource("1")
 
 [node name="Player" parent="." instance=ExtResource("2")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.0, 4.0, 4.0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 24.0, 4.0, 24.0)
 
 [node name="ChunkManager" type="Node3D" parent="."]
+script = ExtResource("5")
 chunk_scene = ExtResource("3")
 player_path = NodePath("../Player")
-script = ExtResource("5")
+
+[node name="FieldGrazer" parent="." instance=ExtResource("6")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 29.0, 2.0, 24.0)
+
+[node name="RaiderEnemy" parent="." instance=ExtResource("7")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 18.5, 2.0, 24.0)
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = ExtResource("4")
