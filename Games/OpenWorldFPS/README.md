@@ -14,11 +14,13 @@ The world bootstraps a chunked terrain around the player using a deterministic s
 - CharacterBody3D player with camera and grounded movement.
 - Chunk manager with configurable radius and seed-driven chunk generation.
 - Deterministic biome-aware procedural world population with placeholder towns, creature clusters, and hostile units.
+- Towns progress through Stable, Uneasy, Alert, and Overrun pressure states as lion pressure and enemy density rise.
 - Explicit 3D physics layer names in `project.godot`.
 
 ## Spawn and biome controls
 - `world_seed` drives deterministic biome assignment for each chunk.
 - Three town variants now exist (`market`, `fort`, `farm`) and spawn according to biome and distance tuning.
+- Pressure state adds warning markers, temporary defenses, NPC posture placeholders, travel safety changes, and pressure enemy density in affected chunks.
 - `ChunkManager` applies distance-based density falloff so distant chunks produce fewer obstacles/creatures/towns:
   - `far_chunk_density` controls density at the edge of configured load distance.
   - `chunk_distance_falloff` controls how quickly the density curve decays.

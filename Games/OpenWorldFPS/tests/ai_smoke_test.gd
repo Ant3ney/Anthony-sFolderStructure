@@ -61,6 +61,10 @@ func _run() -> void:
 	_expect(int(pressure_snapshot["stage"]) >= 3, "Lion pressure advances village pressure stages")
 	_expect(int(pressure_snapshot["count"]) > 0, "Lion pressure spawns migration lions over time")
 	_expect(int(pressure_snapshot["chunk_stage"]) == int(pressure_snapshot["stage"]), "Chunk villages receive lion pressure stages")
+	_expect(int(pressure_snapshot["settlement_state"]) >= 2, "Town settlement state reaches Alert under pressure")
+	_expect(float(pressure_snapshot["travel_safety"]) < 0.9, "Pressured towns lower loaded chunk travel safety")
+	_expect(int(pressure_snapshot["pressure_enemy_count"]) > 0, "Alert towns add pressure enemy density")
+	_expect(bool(pressure_snapshot["has_state_artifacts"]), "Town pressure renders warning, NPC, and defense artifacts")
 
 	test_root.queue_free()
 	if _failures > 0:
@@ -88,6 +92,10 @@ func _pressure_director_snapshot() -> Dictionary:
 		"stage": 0,
 		"count": 0,
 		"chunk_stage": -1,
+		"settlement_state": 0,
+		"travel_safety": 1.0,
+		"pressure_enemy_count": 0,
+		"has_state_artifacts": false,
 	}
 	var world := WORLD_SCENE.instantiate()
 	root.add_child(world)
@@ -103,8 +111,21 @@ func _pressure_director_snapshot() -> Dictionary:
 	snapshot["stage"] = int(director.call("get_pressure_stage"))
 	snapshot["count"] = int(director.call("get_active_lion_count"))
 	snapshot["chunk_stage"] = int(chunk_manager.call("get_lion_pressure_stage"))
+	var summary: Dictionary = chunk_manager.call("get_settlement_pressure_summary")
+	snapshot["settlement_state"] = int(summary["state"])
+	snapshot["travel_safety"] = float(summary["travel_safety_scale"])
+	snapshot["pressure_enemy_count"] = int(summary["pressure_enemy_count"])
+	snapshot["has_state_artifacts"] = _count_group_members(world, "settlement_pressure_artifacts") > 0
 	world.queue_free()
 	return snapshot
+
+func _count_group_members(node: Node, group_name: String) -> int:
+	var count := 0
+	if node.is_in_group(group_name):
+		count += 1
+	for child in node.get_children():
+		count += _count_group_members(child, group_name)
+	return count
 
 func _expect(condition: bool, message: String) -> void:
 	if condition:

@@ -15,6 +15,7 @@ const DEAD_TEXT := "DEAD - Press R to reload and continue"
 @onready var health_label: Label = $HUD/HUDPanel/HUDRows/HealthLabel
 @onready var alert_label: Label = $HUD/HUDPanel/HUDRows/AlertLabel
 @onready var lion_pressure_label: Label = $HUD/HUDPanel/HUDRows/LionPressureLabel
+@onready var town_pressure_label: Label = $HUD/HUDPanel/HUDRows/TownPressureLabel
 @onready var lock_label: Label = $HUD/HUDPanel/HUDRows/TargetLockLabel
 @onready var status_label: Label = $HUD/HUDPanel/HUDRows/StatusLabel
 
@@ -34,6 +35,9 @@ func _ready() -> void:
 		return
 	_connect_player_hud()
 	_connect_lion_pressure_hud()
+
+func _physics_process(_delta: float) -> void:
+	_update_settlement_pressure_hud()
 
 
 func _connect_player_hud() -> void:
@@ -80,7 +84,23 @@ func _on_target_lock_updated(enabled: bool) -> void:
 
 func _on_lion_pressure_changed(stage: int, pressure_level: float, warning: String, active_lions: int) -> void:
 	lion_pressure_label.text = "%s | Stage %d | Count %d | Pressure %.2f" % [warning, stage, active_lions, pressure_level]
+	_update_settlement_pressure_hud()
 
 
 func _on_death_state_changed(is_dead: bool) -> void:
 	status_label.text = DEAD_TEXT if is_dead else "Press LMB to shoot and WASD to move"
+
+func _update_settlement_pressure_hud() -> void:
+	if town_pressure_label == null or chunk_manager == null:
+		return
+	if not chunk_manager.has_method("get_settlement_pressure_summary"):
+		town_pressure_label.text = "Town: Stable | Safety 100% | Enemies 0"
+		return
+
+	var summary: Dictionary = chunk_manager.call("get_settlement_pressure_summary")
+	var safety_percent := int(round(float(summary.get("travel_safety_scale", 1.0)) * 100.0))
+	town_pressure_label.text = "Town: %s | Safety %d%% | Enemies %d" % [
+		String(summary.get("state_name", "Stable")),
+		safety_percent,
+		int(summary.get("effective_enemy_density", 0))
+	]

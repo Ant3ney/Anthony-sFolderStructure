@@ -59,6 +59,7 @@ func advance_pressure(amount: float, spawn_wave: bool = true) -> void:
 	_set_pressure(_pressure_level + amount)
 	if spawn_wave:
 		_spawn_migration_wave()
+		_apply_pressure_to_chunks()
 	_emit_pressure_changed()
 
 func get_pressure_level() -> float:
@@ -107,7 +108,7 @@ func _apply_pressure_to_chunks() -> void:
 	if _chunk_manager == null:
 		_resolve_references()
 	if _chunk_manager != null and _chunk_manager.has_method("set_lion_pressure"):
-		_chunk_manager.call("set_lion_pressure", _pressure_stage, _density_scale())
+		_chunk_manager.call("set_lion_pressure", _pressure_stage, _density_scale(), get_active_lion_count())
 
 func _spawn_migration_wave() -> void:
 	_cleanup_active_lions()

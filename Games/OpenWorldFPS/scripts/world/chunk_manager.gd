@@ -12,10 +12,13 @@ class_name ChunkManager
 
 @onready var player: CharacterBody3D
 
+const SETTLEMENT_STATE_NAMES := ["Stable", "Uneasy", "Alert", "Overrun"]
+
 var _loaded_chunks: Dictionary = {}
 var _active_chunk: Vector2i = Vector2i.ZERO
 var _lion_pressure_stage: int = 0
 var _lion_density_scale: float = 1.0
+var _active_lion_count: int = 0
 
 func _ready() -> void:
 	if chunk_scene == null:
@@ -81,7 +84,7 @@ func _spawn_chunk(coord: Vector2i) -> void:
 	var population_scale := _population_scale(player_distance)
 	chunk.call("initialize", coord, seed, chunk_size, obstacles_per_chunk, player_distance, population_scale)
 	if chunk.has_method("set_lion_pressure"):
-		chunk.call("set_lion_pressure", _lion_pressure_stage, _lion_density_scale)
+		chunk.call("set_lion_pressure", _lion_pressure_stage, _lion_density_scale, _active_lion_count)
 	add_child(chunk)
 	_loaded_chunks[_chunk_key(coord)] = chunk
 
@@ -99,18 +102,66 @@ func _population_scale(distance: int) -> float:
 func _chunk_key(coord: Vector2i) -> String:
 	return "%d_%d" % [coord.x, coord.y]
 
-func set_lion_pressure(stage: int, density_scale: float) -> void:
+func set_lion_pressure(stage: int, density_scale: float, active_lion_count: int = 0) -> void:
 	_lion_pressure_stage = int(clamp(stage, 0, 4))
 	_lion_density_scale = clampf(density_scale, 0.0, 5.0)
+	_active_lion_count = max(0, active_lion_count)
 	for chunk in _loaded_chunks.values():
 		if is_instance_valid(chunk) and chunk.has_method("set_lion_pressure"):
-			chunk.call("set_lion_pressure", _lion_pressure_stage, _lion_density_scale)
+			chunk.call("set_lion_pressure", _lion_pressure_stage, _lion_density_scale, _active_lion_count)
 
 func get_lion_pressure_stage() -> int:
 	return _lion_pressure_stage
 
 func get_lion_density_scale() -> float:
 	return _lion_density_scale
+
+func get_active_lion_count() -> int:
+	return _active_lion_count
+
+func get_most_pressured_settlement_state() -> int:
+	var state := 0
+	for chunk in _loaded_chunks.values():
+		if is_instance_valid(chunk) and chunk.has_method("get_settlement_state"):
+			state = max(state, int(chunk.call("get_settlement_state")))
+	return state
+
+func get_most_pressured_settlement_state_name() -> String:
+	return _state_name(get_most_pressured_settlement_state())
+
+func get_average_travel_safety_scale() -> float:
+	var total := 0.0
+	var count := 0
+	for chunk in _loaded_chunks.values():
+		if is_instance_valid(chunk) and chunk.has_method("get_travel_safety_scale"):
+			total += float(chunk.call("get_travel_safety_scale"))
+			count += 1
+	if count <= 0:
+		return 1.0
+	return clampf(total / float(count), 0.0, 1.0)
+
+func get_pressure_enemy_count() -> int:
+	var total := 0
+	for chunk in _loaded_chunks.values():
+		if is_instance_valid(chunk) and chunk.has_method("get_pressure_enemy_count"):
+			total += int(chunk.call("get_pressure_enemy_count"))
+	return total
+
+func get_effective_enemy_density() -> int:
+	var total := 0
+	for chunk in _loaded_chunks.values():
+		if is_instance_valid(chunk) and chunk.has_method("get_effective_enemy_density"):
+			total += int(chunk.call("get_effective_enemy_density"))
+	return total
+
+func get_settlement_pressure_summary() -> Dictionary:
+	return {
+		"state": get_most_pressured_settlement_state(),
+		"state_name": get_most_pressured_settlement_state_name(),
+		"travel_safety_scale": get_average_travel_safety_scale(),
+		"pressure_enemy_count": get_pressure_enemy_count(),
+		"effective_enemy_density": get_effective_enemy_density(),
+	}
 
 func get_loaded_town_centers() -> Array[Vector3]:
 	var centers: Array[Vector3] = []
@@ -123,3 +174,7 @@ func get_loaded_town_centers() -> Array[Vector3]:
 		for local_center in chunk.call("get_town_centers"):
 			centers.append(chunk_node.to_global(local_center))
 	return centers
+
+func _state_name(state: int) -> String:
+	var index: int = int(clamp(state, 0, SETTLEMENT_STATE_NAMES.size() - 1))
+	return String(SETTLEMENT_STATE_NAMES[index])
