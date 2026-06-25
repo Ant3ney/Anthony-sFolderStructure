@@ -6,6 +6,8 @@ class_name ChunkManager
 @export var chunk_size: float = 48.0
 @export_range(1, 6) var load_radius: int = 1
 @export_range(2, 30) var obstacles_per_chunk: int = 12
+@export_range(0.25, 1.0, 0.05) var far_chunk_density: float = 0.45
+@export_range(1, 20) var chunk_distance_falloff: int = 6
 @export_node_path("CharacterBody3D") var player_path: NodePath
 
 @onready var player: CharacterBody3D
@@ -73,9 +75,22 @@ func _spawn_chunk(coord: Vector2i) -> void:
 
 	chunk.name = "Chunk_%d_%d" % [coord.x, coord.y]
 	chunk.position = Vector3(coord.x * chunk_size, 0.0, coord.y * chunk_size)
-	chunk.call("initialize", coord, seed, chunk_size, obstacles_per_chunk)
+	var player_distance := _chunk_distance_to_player(coord)
+	var population_scale := _population_scale(player_distance)
+	chunk.call("initialize", coord, seed, chunk_size, obstacles_per_chunk, player_distance, population_scale)
 	add_child(chunk)
 	_loaded_chunks[_chunk_key(coord)] = chunk
+
+func _chunk_distance_to_player(coord: Vector2i) -> int:
+	return max(abs(coord.x - _active_chunk.x), abs(coord.y - _active_chunk.y))
+
+func _population_scale(distance: int) -> float:
+	if distance <= 1:
+		return 1.0
+	var effective_distance := float(max(distance - 1, 0))
+	var falloff: int = max(chunk_distance_falloff, 1)
+	var progress: float = clamp(effective_distance / float(falloff), 0.0, 1.0)
+	return lerp(1.0, far_chunk_density, progress)
 
 func _chunk_key(coord: Vector2i) -> String:
 	return "%d_%d" % [coord.x, coord.y]
