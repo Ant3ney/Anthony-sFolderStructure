@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+REAL_CODEX="$(command -v codex)"
+CODEX_CONFIG="${CODEX_CONFIG_FILE:-${CODEX_HOME:-$HOME/.codex}/config.toml}"
+PROTECTED_APPROVAL_POLICY="never"
+PROTECTED_SANDBOX_MODE="danger-full-access"
+
+if [[ -z "$REAL_CODEX" ]]; then
+  echo "codex executable not found in PATH" >&2
+  exit 127
+fi
+
+read_toml_string() {
+  local key="$1"
+  local line value
+
+  line="$(grep -E "^[[:space:]]*${key}[[:space:]]*=" "$CODEX_CONFIG" 2>/dev/null | tail -n 1 || true)"
+  value="${line#*=}"
+  value="${value%%#*}"
+  value="${value//[[:space:]]/}"
+  value="${value%\"}"
+  value="${value#\"}"
+
+  printf '%s' "$value"
+}
+
+approval_policy="$(read_toml_string approval_policy)"
+sandbox_mode="$(read_toml_string sandbox_mode)"
+
+fail() {
+  echo "Stoneforge Codex permission invariant violation: $*" >&2
+  echo "Expected ~/.codex/config.toml to keep approval_policy=\"never\" and sandbox_mode=\"danger-full-access\"." >&2
+  echo "Do not launch Stoneforge agents with prompt-for-permission overrides without explicit human approval." >&2
+  exit 78
+}
+
+if [[ "$approval_policy" != "$PROTECTED_APPROVAL_POLICY" ]]; then
+  fail "approval_policy is '${approval_policy:-unset}', expected '$PROTECTED_APPROVAL_POLICY'"
+fi
+
+if [[ "$sandbox_mode" != "$PROTECTED_SANDBOX_MODE" ]]; then
+  fail "sandbox_mode is '${sandbox_mode:-unset}', expected '$PROTECTED_SANDBOX_MODE'"
+fi
+
+if [[ "${1:-}" == "--stoneforge-permission-audit" ]]; then
+  printf 'codex_config=%s\n' "$CODEX_CONFIG"
+  printf 'real_codex=%s\n' "$REAL_CODEX"
+  printf 'approval_policy=%s\n' "$approval_policy"
+  printf 'sandbox_mode=%s\n' "$sandbox_mode"
+  printf 'launch_approval_policy=%s\n' "$PROTECTED_APPROVAL_POLICY"
+  printf 'launch_sandbox_mode=%s\n' "$PROTECTED_SANDBOX_MODE"
+  exit 0
+fi
+
+check_config_override() {
+  local override compact
+  override="$1"
+  compact="${override//[[:space:]]/}"
+
+  case "$compact" in
+    approval_policy=never|approval_policy=\"never\")
+      return 0
+      ;;
+    approval_policy=*)
+      fail "refusing Codex config override '$override'"
+      ;;
+    sandbox_mode=danger-full-access|sandbox_mode=\"danger-full-access\")
+      return 0
+      ;;
+    sandbox_mode=*)
+      fail "refusing Codex config override '$override'"
+      ;;
+  esac
+}
+
+args=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --full-auto|--yolo)
+      # Old Codex automation shorthands are normalized to explicit protected flags below.
+      shift
+      ;;
+    --dangerously-bypass-approvals-and-sandbox)
+      fail "refusing sandbox bypass flag '$1'"
+      ;;
+    --ask-for-approval|-a)
+      if [[ $# -lt 2 ]]; then
+        fail "missing value for '$1'"
+      fi
+      if [[ "$2" != "$PROTECTED_APPROVAL_POLICY" ]]; then
+        fail "refusing approval override '$1 $2'"
+      fi
+      shift 2
+      ;;
+    --ask-for-approval=*)
+      value="${1#*=}"
+      if [[ "$value" != "$PROTECTED_APPROVAL_POLICY" ]]; then
+        fail "refusing approval override '$1'"
+      fi
+      shift
+      ;;
+    -a*)
+      value="${1#-a}"
+      if [[ "$value" != "$PROTECTED_APPROVAL_POLICY" ]]; then
+        fail "refusing approval override '$1'"
+      fi
+      shift
+      ;;
+    --sandbox|-s)
+      if [[ $# -lt 2 ]]; then
+        fail "missing value for '$1'"
+      fi
+      if [[ "$2" != "$PROTECTED_SANDBOX_MODE" ]]; then
+        fail "refusing sandbox override '$1 $2'"
+      fi
+      shift 2
+      ;;
+    --sandbox=*)
+      value="${1#*=}"
+      if [[ "$value" != "$PROTECTED_SANDBOX_MODE" ]]; then
+        fail "refusing sandbox override '$1'"
+      fi
+      shift
+      ;;
+    -s*)
+      value="${1#-s}"
+      if [[ "$value" != "$PROTECTED_SANDBOX_MODE" ]]; then
+        fail "refusing sandbox override '$1'"
+      fi
+      shift
+      ;;
+    --config|-c)
+      if [[ $# -lt 2 ]]; then
+        fail "missing value for '$1'"
+      fi
+      check_config_override "$2"
+      args+=("$1" "$2")
+      shift 2
+      ;;
+    --config=*)
+      check_config_override "${1#*=}"
+      args+=("$1")
+      shift
+      ;;
+    *)
+      args+=("$1")
+      shift
+      ;;
+  esac
+done
+
+exec "$REAL_CODEX" \
+  --ask-for-approval "$PROTECTED_APPROVAL_POLICY" \
+  --sandbox "$PROTECTED_SANDBOX_MODE" \
+  "${args[@]}"
